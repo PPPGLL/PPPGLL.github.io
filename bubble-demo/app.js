@@ -1,480 +1,269 @@
-(() => {
-  "use strict";
+import { BubbleSimulation } from "./physics.js";
+import { BubbleRenderer } from "./renderer.js";
+import { rayFromScreen } from "./math.js";
 
-  const canvas = document.querySelector("#scene");
-  const gl = canvas.getContext("webgl2", {
-    antialias: false,
-    alpha: false,
-    depth: false,
-    powerPreference: "high-performance"
+const canvas = document.querySelector("#scene");
+const errorScreen = document.querySelector("#error");
+const loadingLabel = document.querySelector("#loading-label");
+const fpsLabel = document.querySelector("#fps");
+const countLabel = document.querySelector("#counts");
+const simulation = new BubbleSimulation();
+
+let renderer;
+try {
+  renderer = new BubbleRenderer(canvas, simulation, {
+    onEnvironmentLoading(index, progress) {
+      loadingLabel.hidden = false;
+      loadingLabel.textContent = progress > 0
+        ? `HDR ${index + 1} · ${Math.round(progress * 100)}%`
+        : `正在载入 HDR ${index + 1}`;
+    },
+    onEnvironmentLoaded() {
+      loadingLabel.hidden = true;
+    },
+    onEnvironmentError() {
+      loadingLabel.hidden = false;
+      loadingLabel.textContent = "HDR 载入失败，使用后备环境";
+    }
   });
+} catch (error) {
+  console.error(error);
+  errorScreen.classList.add("visible");
+  document.querySelector("#error-detail").textContent = error.message;
+  throw error;
+}
 
-  if (!gl) {
-    document.querySelector("#error").classList.add("visible");
-    return;
-  }
+const parameterInputs = [...document.querySelectorAll("[data-param]")];
+const materialParameters = new Set(["eta2", "eta3", "kappa3"]);
+let lutTimer = 0;
 
-  const MAX_BUBBLES = 18;
-  const vertexSource = `#version 300 es
-    precision highp float;
-    const vec2 POSITIONS[3] = vec2[3](
-      vec2(-1.0, -1.0),
-      vec2(3.0, -1.0),
-      vec2(-1.0, 3.0)
+function inputValue(input) {
+  return input.type === "checkbox" ? input.checked : Number(input.value);
+}
+
+function updateOutput(input) {
+  const output = document.querySelector(`[data-output="${input.dataset.param}"]`);
+  if (!output) return;
+  const value = Number(input.value);
+  const precision = Number(input.dataset.precision ?? 2);
+  const suffix = input.dataset.suffix ?? "";
+  output.textContent = `${value.toFixed(precision)}${suffix}`;
+}
+
+function scheduleLutUpdate() {
+  clearTimeout(lutTimer);
+  loadingLabel.hidden = false;
+  loadingLabel.textContent = "正在重建薄膜 LUT";
+  lutTimer = window.setTimeout(() => {
+    renderer.updateThinFilmLut();
+    loadingLabel.hidden = true;
+  }, 120);
+}
+
+parameterInputs.forEach((input) => {
+  const name = input.dataset.param;
+  const sync = () => {
+    simulation.setParameter(name, inputValue(input));
+    updateOutput(input);
+    if (materialParameters.has(name)) scheduleLutUpdate();
+    if (name === "singlePreview") updateModeButtons();
+    if (name === "wetness") {
+      simulation.updateBondRestDistances();
+      simulation.rebuildConnectionGeometry();
+    }
+  };
+  input.addEventListener("input", sync);
+  input.addEventListener("change", sync);
+  updateOutput(input);
+});
+
+document.querySelectorAll("[data-tab]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const tab = button.dataset.tab;
+    document.querySelectorAll("[data-tab]").forEach((candidate) => {
+      candidate.classList.toggle("active", candidate === button);
+      candidate.setAttribute("aria-selected", String(candidate === button));
+    });
+    document.querySelectorAll("[data-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.panel !== tab;
+    });
+  });
+});
+
+const observeButton = document.querySelector("#mode-observe");
+const interactButton = document.querySelector("#mode-interact");
+
+function updateModeButtons() {
+  observeButton.classList.toggle("active", !simulation.params.interactionMode);
+  interactButton.classList.toggle("active", simulation.params.interactionMode);
+  observeButton.setAttribute("aria-pressed", String(!simulation.params.interactionMode));
+  interactButton.setAttribute("aria-pressed", String(simulation.params.interactionMode));
+  const previewInput = document.querySelector('[data-param="singlePreview"]');
+  previewInput.checked = simulation.params.singlePreview;
+}
+
+observeButton.addEventListener("click", () => {
+  simulation.setInteractionMode(false);
+  updateModeButtons();
+});
+
+interactButton.addEventListener("click", () => {
+  simulation.setInteractionMode(true);
+  updateModeButtons();
+});
+
+const environmentButtons = [...document.querySelectorAll("[data-environment]")];
+let selectedEnvironment = 0;
+
+function selectEnvironment(index) {
+  selectedEnvironment = index;
+  environmentButtons.forEach((button, buttonIndex) => {
+    button.classList.toggle("active", buttonIndex === index);
+    button.setAttribute("aria-pressed", String(buttonIndex === index));
+  });
+  renderer.setEnvironment(index);
+}
+
+environmentButtons.forEach((button, index) => {
+  button.addEventListener("click", () => selectEnvironment(index));
+});
+
+let showcaseEnvironmentTimer = 0;
+let showcaseLaunchTimer = 0;
+
+function stopShowcaseTimers() {
+  clearInterval(showcaseEnvironmentTimer);
+  clearInterval(showcaseLaunchTimer);
+  showcaseEnvironmentTimer = 0;
+  showcaseLaunchTimer = 0;
+}
+
+document.querySelector("#showcase").addEventListener("change", (event) => {
+  simulation.setShowcaseMode(event.target.checked);
+  stopShowcaseTimers();
+  if (!event.target.checked) return;
+  simulation.params.singlePreview = false;
+  document.querySelector('[data-param="singlePreview"]').checked = false;
+  simulation.launchBubble();
+  showcaseEnvironmentTimer = window.setInterval(() => {
+    selectEnvironment((selectedEnvironment + 1) % environmentButtons.length);
+  }, 1500);
+  showcaseLaunchTimer = window.setInterval(() => simulation.launchBubble(), 66);
+});
+
+const launchButton = document.querySelector("#launch");
+let launchTimer = 0;
+
+function stopLaunching() {
+  clearInterval(launchTimer);
+  launchTimer = 0;
+  launchButton.classList.remove("held");
+}
+
+launchButton.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  simulation.launchBubble();
+  launchButton.classList.add("held");
+  launchButton.setPointerCapture(event.pointerId);
+  launchTimer = window.setInterval(() => simulation.launchBubble(), 50);
+});
+launchButton.addEventListener("pointerup", stopLaunching);
+launchButton.addEventListener("pointercancel", stopLaunching);
+launchButton.addEventListener("lostpointercapture", stopLaunching);
+
+document.querySelector("#clear").addEventListener("click", () => simulation.clear());
+
+let pointerActive = false;
+let pointerId = -1;
+let previousPointerX = 0;
+let camera = simulation.getCamera(1);
+
+function localPointer(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  const point = localPointer(event);
+  pointerActive = true;
+  pointerId = event.pointerId;
+  previousPointerX = point.x;
+  canvas.setPointerCapture(event.pointerId);
+  renderer.setTouch(point.x, point.y, true);
+  if (simulation.params.interactionMode) {
+    const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
+    simulation.pointerDown(
+      ray,
+      [point.x, point.y],
+      event.timeStamp / 1000,
+      camera
     );
-    out vec2 vUv;
-    void main() {
-      vec2 position = POSITIONS[gl_VertexID];
-      vUv = position * 0.5 + 0.5;
-      gl_Position = vec4(position, 0.0, 1.0);
-    }
-  `;
-
-  const fragmentSource = `#version 300 es
-    precision highp float;
-    #define MAX_BUBBLES ${MAX_BUBBLES}
-    const float PI = 3.14159265359;
-
-    in vec2 vUv;
-    out vec4 fragColor;
-
-    uniform vec2 uResolution;
-    uniform float uTime;
-    uniform float uThickness;
-    uniform float uFlow;
-    uniform float uTension;
-    uniform int uBubbleCount;
-    uniform vec4 uBubbles[MAX_BUBBLES];
-    uniform vec4 uBubbleData[MAX_BUBBLES];
-
-    float hash31(vec3 p) {
-      p = fract(p * 0.1031);
-      p += dot(p, p.yzx + 33.33);
-      return fract((p.x + p.y) * p.z);
-    }
-
-    float noise3(vec3 p) {
-      vec3 i = floor(p);
-      vec3 f = fract(p);
-      f = f * f * (3.0 - 2.0 * f);
-      return mix(
-        mix(mix(hash31(i), hash31(i + vec3(1,0,0)), f.x),
-            mix(hash31(i + vec3(0,1,0)), hash31(i + vec3(1,1,0)), f.x), f.y),
-        mix(mix(hash31(i + vec3(0,0,1)), hash31(i + vec3(1,0,1)), f.x),
-            mix(hash31(i + vec3(0,1,1)), hash31(i + vec3(1,1,1)), f.x), f.y),
-        f.z
-      );
-    }
-
-    float fbm(vec3 p) {
-      float value = 0.0;
-      float amplitude = 0.55;
-      for (int i = 0; i < 4; ++i) {
-        value += amplitude * noise3(p);
-        p = p * 2.03 + vec3(17.1, 9.2, 13.7);
-        amplitude *= 0.48;
-      }
-      return value;
-    }
-
-    vec3 sky(vec3 ray) {
-      float horizon = pow(1.0 - abs(ray.y), 5.0);
-      float dusk = smoothstep(-0.65, 0.45, ray.y);
-      vec3 low = mix(vec3(0.025, 0.052, 0.085), vec3(0.10, 0.18, 0.25), dusk);
-      vec3 color = low + horizon * vec3(0.08, 0.13, 0.17);
-      vec3 lightDir = normalize(vec3(-0.48, 0.62, 0.54));
-      float sun = pow(max(dot(ray, lightDir), 0.0), 360.0);
-      float bloom = pow(max(dot(ray, lightDir), 0.0), 16.0);
-      color += sun * vec3(5.0, 4.0, 3.1) + bloom * vec3(0.34, 0.28, 0.25);
-      float bands = smoothstep(.74, .78, sin(ray.x * 11.0 + ray.z * 8.0 + ray.y * 4.0));
-      color += bands * smoothstep(-.2, .8, ray.y) * .018;
-      return color;
-    }
-
-    vec3 thinFilm(float cosTheta, float thicknessNm) {
-      vec3 lambda = vec3(650.0, 530.0, 455.0);
-      float filmIor = 1.333;
-      float sin2 = max(0.0, 1.0 - cosTheta * cosTheta) / (filmIor * filmIor);
-      float cosFilm = sqrt(max(0.0, 1.0 - sin2));
-      vec3 phase = (4.0 * PI * filmIor * thicknessNm * cosFilm) / lambda;
-      vec3 interference = 0.5 + 0.5 * cos(phase + vec3(0.15, 0.0, -0.12));
-      float f0 = pow((filmIor - 1.0) / (filmIor + 1.0), 2.0);
-      float fresnel = f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
-      vec3 spectral = mix(vec3(0.018), 0.12 + 0.72 * interference, 0.72);
-      return clamp(spectral * (0.24 + 2.8 * fresnel), 0.0, 0.92);
-    }
-
-    bool hitSphere(vec3 ro, vec3 rd, vec3 center, float radius, out float nearT, out float farT) {
-      vec3 oc = ro - center;
-      float b = dot(oc, rd);
-      float c = dot(oc, oc) - radius * radius;
-      float h = b * b - c;
-      if (h < 0.0) return false;
-      h = sqrt(h);
-      nearT = -b - h;
-      farT = -b + h;
-      return farT > 0.0;
-    }
-
-    void main() {
-      vec2 pixel = (gl_FragCoord.xy * 2.0 - uResolution.xy) / uResolution.y;
-      vec3 ro = vec3(0.0, 0.0, 8.2);
-      vec3 rd = normalize(vec3(pixel, -2.35));
-      vec3 base = sky(rd);
-
-      float nearest = 1e5;
-      float exitT = 0.0;
-      int hitIndex = -1;
-
-      for (int i = 0; i < MAX_BUBBLES; ++i) {
-        if (i >= uBubbleCount) break;
-        float t0;
-        float t1;
-        vec3 center = uBubbles[i].xyz;
-        float radius = uBubbles[i].w;
-        if (hitSphere(ro, rd, center, radius, t0, t1)) {
-          t0 = max(t0, 0.0);
-          if (t0 < nearest) {
-            nearest = t0;
-            exitT = t1;
-            hitIndex = i;
-          }
-        }
-      }
-
-      if (hitIndex >= 0) {
-        vec4 bubble = uBubbles[hitIndex];
-        vec3 position = ro + rd * nearest;
-        vec3 normal = normalize(position - bubble.xyz);
-        float wobblePhase = uBubbleData[hitIndex].x;
-        float deformation = (1.0 - uTension) * 0.055;
-        normal = normalize(normal + deformation * vec3(
-          sin(position.y * 7.0 + uTime * 2.2 + wobblePhase),
-          sin(position.z * 8.0 - uTime * 1.7 + wobblePhase),
-          sin(position.x * 7.0 + uTime * 1.3)
-        ));
-
-        float ndv = clamp(dot(normal, -rd), 0.0, 1.0);
-        float flowNoise = fbm(normal * 2.7 + vec3(0.0, uTime * .13, -uTime * .08));
-        float gravityDrain = (normal.y * -0.5 + 0.5);
-        float localThickness = uThickness
-          + uFlow * ((flowNoise - .48) * 310.0 + gravityDrain * 145.0)
-          + uBubbleData[hitIndex].y;
-        vec3 reflectance = thinFilm(ndv, clamp(localThickness, 80.0, 1200.0));
-
-        vec3 reflected = sky(reflect(rd, normal));
-        vec3 backPosition = ro + rd * exitT;
-        vec3 backNormal = normalize(backPosition - bubble.xyz);
-        float backNdotV = clamp(abs(dot(backNormal, rd)), 0.0, 1.0);
-        vec3 backFilm = thinFilm(backNdotV, clamp(localThickness * .96, 80.0, 1200.0));
-
-        vec2 refractedOffset = normal.xy * (0.035 + 0.09 * (1.0 - ndv)) * bubble.w;
-        vec3 throughRay = normalize(vec3(pixel + refractedOffset, -2.35));
-        vec3 transmitted = sky(throughRay) * (vec3(1.0) - backFilm);
-        vec3 color = transmitted * (vec3(1.0) - reflectance) + reflected * reflectance;
-
-        float rim = pow(1.0 - ndv, 5.0);
-        float highlight = pow(max(dot(reflect(rd, normal), normalize(vec3(-.48, .62, .54))), 0.0), 96.0);
-        color += rim * reflectance * 0.7 + highlight * vec3(1.5, 1.25, 1.05);
-        base = color;
-      }
-
-      float vignette = 1.0 - 0.17 * dot(pixel * .36, pixel * .36);
-      base *= vignette;
-      base = base / (base + vec3(1.0));
-      base = pow(max(base, 0.0), vec3(1.0 / 2.2));
-      fragColor = vec4(base, 1.0);
-    }
-  `;
-
-  function compileShader(type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const message = gl.getShaderInfoLog(shader);
-      gl.deleteShader(shader);
-      throw new Error(message);
-    }
-    return shader;
   }
+});
 
-  function createProgram() {
-    const program = gl.createProgram();
-    const vertexShader = compileShader(gl.VERTEX_SHADER, vertexSource);
-    const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program));
-    }
-    return program;
+canvas.addEventListener("pointermove", (event) => {
+  const point = localPointer(event);
+  if (!pointerActive || event.pointerId !== pointerId) return;
+  renderer.setTouch(point.x, point.y, true);
+  if (simulation.params.interactionMode) {
+    const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
+    simulation.pointerMove(
+      ray,
+      [point.x, point.y],
+      event.timeStamp / 1000,
+      camera,
+      { width: point.width, height: point.height }
+    );
+  } else {
+    simulation.cameraYaw += (point.x - previousPointerX) * .5 * Math.PI / 180;
+    previousPointerX = point.x;
   }
+});
 
-  let program;
-  try {
-    program = createProgram();
-  } catch (error) {
-    console.error(error);
-    document.querySelector("#error").classList.add("visible");
-    return;
+function endPointer(event) {
+  if (!pointerActive || event.pointerId !== pointerId) return;
+  pointerActive = false;
+  pointerId = -1;
+  simulation.pointerUp();
+  renderer.setTouch(0, 0, false);
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+}
+
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
+
+let previousFrame = performance.now();
+let fpsAccumulator = 0;
+let fpsFrameCount = 0;
+let fpsUpdateTime = previousFrame;
+
+function frame(now) {
+  const deltaTime = Math.min((now - previousFrame) / 1000, .05);
+  previousFrame = now;
+  const aspect = Math.max(canvas.clientWidth, 1) / Math.max(canvas.clientHeight, 1);
+  simulation.update(deltaTime, aspect);
+  camera = renderer.render();
+
+  fpsAccumulator += deltaTime;
+  fpsFrameCount += 1;
+  if (now - fpsUpdateTime >= 500) {
+    simulation.fps = fpsFrameCount / Math.max(fpsAccumulator, .001);
+    fpsLabel.textContent = `${simulation.fps.toFixed(1)} FPS`;
+    countLabel.textContent = simulation.params.singlePreview
+      ? "单泡泡预览"
+      : `${simulation.bubbles.length} 泡泡 · ${simulation.bonds.length} 连接`;
+    fpsAccumulator = 0;
+    fpsFrameCount = 0;
+    fpsUpdateTime = now;
   }
+  requestAnimationFrame(frame);
+}
 
-  const uniforms = {};
-  [
-    "uResolution", "uTime", "uThickness", "uFlow", "uTension",
-    "uBubbleCount", "uBubbles", "uBubbleData"
-  ].forEach((name) => {
-    const uniformName = name === "uBubbles" || name === "uBubbleData"
-      ? `${name}[0]`
-      : name;
-    uniforms[name] = gl.getUniformLocation(program, uniformName);
-  });
-
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-  gl.useProgram(program);
-
-  const thicknessInput = document.querySelector("#thickness");
-  const flowInput = document.querySelector("#flow");
-  const tensionInput = document.querySelector("#tension");
-  const thicknessOutput = document.querySelector("#thickness-value");
-  const flowOutput = document.querySelector("#flow-value");
-  const tensionOutput = document.querySelector("#tension-value");
-  const countOutput = document.querySelector("#bubble-count");
-  const pauseButton = document.querySelector("#pause");
-
-  let bubbles = [];
-  let paused = false;
-  let lastTime = performance.now();
-  let animationTime = 0;
-  let selected = -1;
-  let pointerOffset = { x: 0, y: 0 };
-
-  function makeBubble(x, y, radius, vx = 0, vy = 0) {
-    return {
-      x, y,
-      z: (Math.random() - .5) * 1.5,
-      radius,
-      vx, vy,
-      phase: Math.random() * Math.PI * 2,
-      thicknessOffset: (Math.random() - .5) * 70
-    };
-  }
-
-  function resetScene() {
-    bubbles = [
-      makeBubble(-2.35, -1.15, .82, .18, .28),
-      makeBubble(-.82, .65, 1.12, -.12, .14),
-      makeBubble(1.15, -1.15, .72, -.2, .34),
-      makeBubble(2.35, .72, .94, -.16, .2),
-      makeBubble(.64, 1.7, .58, .12, -.1)
-    ];
-    updateCount();
-  }
-
-  function addBubble(x = null, y = null) {
-    if (bubbles.length >= MAX_BUBBLES) bubbles.shift();
-    const radius = .48 + Math.random() * .47;
-    bubbles.push(makeBubble(
-      x ?? ((Math.random() - .5) * 4.8),
-      y ?? -2.55,
-      radius,
-      (Math.random() - .5) * .7,
-      .65 + Math.random() * .55
-    ));
-    updateCount();
-  }
-
-  function updateCount() {
-    countOutput.textContent = `${bubbles.length} 个泡泡`;
-  }
-
-  function worldBounds() {
-    const aspect = canvas.clientWidth / Math.max(canvas.clientHeight, 1);
-    return {
-      halfWidth: 3.49 * aspect,
-      halfHeight: 3.49
-    };
-  }
-
-  function screenToWorld(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    const bounds = worldBounds();
-    return {
-      x: ((clientX - rect.left) / rect.width * 2 - 1) * bounds.halfWidth,
-      y: (1 - (clientY - rect.top) / rect.height * 2) * bounds.halfHeight
-    };
-  }
-
-  function updatePhysics(dt) {
-    const bounds = worldBounds();
-    const tension = Number(tensionInput.value) / 100;
-
-    bubbles.forEach((bubble, index) => {
-      if (index !== selected) {
-        bubble.vy += .075 * dt;
-        bubble.vx *= Math.pow(.993, dt * 60);
-        bubble.vy *= Math.pow(.996, dt * 60);
-        bubble.x += bubble.vx * dt;
-        bubble.y += bubble.vy * dt;
-      }
-
-      const horizontal = bounds.halfWidth - bubble.radius;
-      const vertical = bounds.halfHeight - bubble.radius;
-      if (bubble.x < -horizontal || bubble.x > horizontal) {
-        bubble.x = Math.max(-horizontal, Math.min(horizontal, bubble.x));
-        bubble.vx *= -.82;
-      }
-      if (bubble.y < -vertical || bubble.y > vertical) {
-        bubble.y = Math.max(-vertical, Math.min(vertical, bubble.y));
-        bubble.vy *= -.74;
-      }
-    });
-
-    for (let i = 0; i < bubbles.length; i += 1) {
-      for (let j = i + 1; j < bubbles.length; j += 1) {
-        const a = bubbles[i];
-        const b = bubbles[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const distance = Math.hypot(dx, dy) || .001;
-        const target = (a.radius + b.radius) * .91;
-        if (distance >= target) continue;
-
-        const nx = dx / distance;
-        const ny = dy / distance;
-        const overlap = target - distance;
-        const stiffness = .35 + tension * .5;
-        a.x -= nx * overlap * .5 * stiffness;
-        a.y -= ny * overlap * .5 * stiffness;
-        b.x += nx * overlap * .5 * stiffness;
-        b.y += ny * overlap * .5 * stiffness;
-
-        const relative = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        if (relative < 0) {
-          const impulse = -(1.45 * relative) / 2;
-          a.vx -= impulse * nx;
-          a.vy -= impulse * ny;
-          b.vx += impulse * nx;
-          b.vy += impulse * ny;
-        }
-      }
-    }
-  }
-
-  function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
-    const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-    const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-      gl.viewport(0, 0, width, height);
-    }
-  }
-
-  function render(now) {
-    resize();
-    const dt = Math.min((now - lastTime) / 1000, .033);
-    lastTime = now;
-    if (!paused) {
-      animationTime += dt;
-      updatePhysics(dt);
-    }
-
-    const bubbleValues = new Float32Array(MAX_BUBBLES * 4);
-    const bubbleData = new Float32Array(MAX_BUBBLES * 4);
-    bubbles.forEach((bubble, index) => {
-      bubbleValues.set([bubble.x, bubble.y, bubble.z, bubble.radius], index * 4);
-      bubbleData.set([bubble.phase, bubble.thicknessOffset, 0, 0], index * 4);
-    });
-
-    gl.useProgram(program);
-    gl.uniform2f(uniforms.uResolution, canvas.width, canvas.height);
-    gl.uniform1f(uniforms.uTime, animationTime);
-    gl.uniform1f(uniforms.uThickness, Number(thicknessInput.value));
-    gl.uniform1f(uniforms.uFlow, Number(flowInput.value) / 100);
-    gl.uniform1f(uniforms.uTension, Number(tensionInput.value) / 100);
-    gl.uniform1i(uniforms.uBubbleCount, bubbles.length);
-    gl.uniform4fv(uniforms.uBubbles, bubbleValues);
-    gl.uniform4fv(uniforms.uBubbleData, bubbleData);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    requestAnimationFrame(render);
-  }
-
-  function updateLabels() {
-    thicknessOutput.textContent = `${thicknessInput.value} nm`;
-    flowOutput.textContent = `${flowInput.value}%`;
-    tensionOutput.textContent = `${tensionInput.value}%`;
-  }
-
-  [thicknessInput, flowInput, tensionInput].forEach((input) => {
-    input.addEventListener("input", updateLabels);
-  });
-
-  document.querySelector("#add").addEventListener("click", () => addBubble());
-  document.querySelector("#reset").addEventListener("click", resetScene);
-  pauseButton.addEventListener("click", () => {
-    paused = !paused;
-    pauseButton.textContent = paused ? "▶" : "Ⅱ";
-    pauseButton.setAttribute("aria-pressed", String(paused));
-    pauseButton.setAttribute("aria-label", paused ? "继续动画" : "暂停动画");
-  });
-
-  canvas.addEventListener("pointerdown", (event) => {
-    const point = screenToWorld(event.clientX, event.clientY);
-    let best = Infinity;
-    bubbles.forEach((bubble, index) => {
-      const distance = Math.hypot(point.x - bubble.x, point.y - bubble.y);
-      if (distance < bubble.radius * 1.12 && distance < best) {
-        best = distance;
-        selected = index;
-      }
-    });
-    if (selected >= 0) {
-      pointerOffset.x = bubbles[selected].x - point.x;
-      pointerOffset.y = bubbles[selected].y - point.y;
-      bubbles[selected].vx = 0;
-      bubbles[selected].vy = 0;
-      canvas.classList.add("dragging");
-      canvas.setPointerCapture(event.pointerId);
-    }
-  });
-
-  canvas.addEventListener("pointermove", (event) => {
-    if (selected < 0) return;
-    const point = screenToWorld(event.clientX, event.clientY);
-    const bubble = bubbles[selected];
-    const previousX = bubble.x;
-    const previousY = bubble.y;
-    bubble.x = point.x + pointerOffset.x;
-    bubble.y = point.y + pointerOffset.y;
-    bubble.vx = (bubble.x - previousX) * 18;
-    bubble.vy = (bubble.y - previousY) * 18;
-  });
-
-  function releasePointer(event) {
-    if (selected < 0) return;
-    selected = -1;
-    canvas.classList.remove("dragging");
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  canvas.addEventListener("pointerup", releasePointer);
-  canvas.addEventListener("pointercancel", releasePointer);
-  canvas.addEventListener("dblclick", (event) => {
-    const point = screenToWorld(event.clientX, event.clientY);
-    addBubble(point.x, point.y);
-  });
-
-  window.addEventListener("resize", resize);
-  resetScene();
-  updateLabels();
-  requestAnimationFrame(render);
-})();
+window.addEventListener("beforeunload", stopShowcaseTimers);
+updateModeButtons();
+requestAnimationFrame(frame);

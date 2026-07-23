@@ -3,34 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Gaole Pan 的实时 WebGL2 肥皂泡薄膜干涉渲染演示。">
-  <meta name="theme-color" content="#07111f">
-  <title>Bubble Lab · WebGL2 Demo</title>
+  <meta name="description" content="由 HarmonyOS OpenGL ES 3.1 完整移植的 WebGL2 实时泡泡渲染系统。">
+  <meta name="theme-color" content="#05080e">
+  <title>透明物体实时色散渲染系统 · WebGL2</title>
   <style>
     :root {
       color-scheme: dark;
-      --ink: #f2f7ff;
-      --muted: #9aacbe;
-      --panel: rgba(8, 20, 34, .76);
-      --line: rgba(196, 224, 255, .16);
-      --accent: #79d8ff;
-      --accent-2: #d6a4ff;
+      --panel: rgba(6, 10, 17, .72);
+      --panel-solid: #0c121c;
+      --line: rgba(255, 255, 255, .13);
+      --muted: #a6b1c2;
+      --text: #f3f7fc;
+      --accent: #6ea8ff;
+      --accent-soft: rgba(59, 130, 246, .4);
     }
-
     * { box-sizing: border-box; }
-
     html, body {
       width: 100%;
-      min-height: 100%;
+      height: 100%;
       margin: 0;
       overflow: hidden;
-      background: #07111f;
-      color: var(--ink);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #05080e;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 12px;
     }
-
-    body { min-height: 100dvh; }
-
+    button, input { font: inherit; }
     canvas {
       position: fixed;
       inset: 0;
@@ -40,269 +38,404 @@
       touch-action: none;
       cursor: grab;
     }
-
-    canvas.dragging { cursor: grabbing; }
+    canvas:active { cursor: grabbing; }
 
     .topbar {
       position: fixed;
       z-index: 3;
       top: 0;
-      left: 0;
       right: 0;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding: max(18px, env(safe-area-inset-top)) 24px 18px;
+      gap: 8px;
+      padding: max(10px, env(safe-area-inset-top)) 10px 0;
       pointer-events: none;
     }
-
-    .brand, .back-link, .control-panel, .hint { pointer-events: auto; }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .brand-mark {
-      width: 34px;
-      height: 34px;
-      flex: 0 0 auto;
-      border: 1px solid rgba(255, 255, 255, .55);
-      border-radius: 50%;
-      background:
-        radial-gradient(circle at 32% 28%, rgba(255,255,255,.9) 0 3%, transparent 4%),
-        conic-gradient(from 30deg, #79d8ff, #d6a4ff, #ff9db5, #f2e779, #79d8ff);
-      box-shadow: inset 0 0 0 6px rgba(7, 17, 31, .78), 0 0 24px rgba(121, 216, 255, .24);
-    }
-
-    .brand strong {
-      display: block;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 19px;
-      letter-spacing: .01em;
-    }
-
-    .brand span {
-      display: block;
-      color: var(--muted);
-      font-size: 11px;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-    }
-
-    .back-link {
-      padding: 8px 12px;
-      color: #dcecff;
+    .status, .back-link {
+      pointer-events: auto;
+      padding: 5px 8px;
+      color: #fff;
       border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(7, 17, 31, .55);
-      backdrop-filter: blur(12px);
-      font-size: 13px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, .55);
+      backdrop-filter: blur(8px);
+      font-size: 10px;
       text-decoration: none;
-      transition: border-color .2s ease, background .2s ease;
     }
-
     .back-link:hover, .back-link:focus-visible {
-      border-color: rgba(121, 216, 255, .6);
-      background: rgba(17, 40, 62, .78);
-      outline: none;
+      border-color: var(--accent);
+      outline: 0;
     }
+    #loading-label { color: #bfd7ff; }
 
     .control-panel {
       position: fixed;
-      z-index: 3;
-      left: 24px;
-      bottom: max(24px, env(safe-area-inset-bottom));
-      width: min(330px, calc(100vw - 48px));
-      padding: 18px;
+      z-index: 4;
+      top: max(16px, env(safe-area-inset-top));
+      left: max(16px, env(safe-area-inset-left));
+      width: 296px;
+      max-height: calc(100dvh - 32px);
+      overflow: auto;
+      padding: 8px;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 9px;
       background: var(--panel);
-      box-shadow: 0 18px 60px rgba(0, 0, 0, .28);
-      backdrop-filter: blur(18px) saturate(1.2);
+      box-shadow: 0 16px 50px rgba(0, 0, 0, .3);
+      backdrop-filter: blur(14px) saturate(1.15);
+      scrollbar-width: thin;
     }
-
-    .panel-heading {
+    .title-row {
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 16px;
+      align-items: center;
+      gap: 8px;
+      margin: 1px 2px 8px;
     }
-
-    .panel-heading h1 {
-      margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 22px;
-      font-weight: 600;
+    .title-mark {
+      width: 22px;
+      height: 22px;
+      flex: none;
+      border: 1px solid rgba(255,255,255,.6);
+      border-radius: 50%;
+      background: conic-gradient(#6ea8ff, #d7a6ff, #ff9cb4, #eade70, #6ea8ff);
+      box-shadow: inset 0 0 0 5px rgba(6,10,17,.8);
     }
-
-    #bubble-count {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .control {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 6px 12px;
-      margin: 13px 0;
-    }
-
-    .control label {
-      color: #d8e5f2;
+    .title-row strong {
+      display: block;
       font-size: 13px;
+      font-weight: 650;
     }
-
-    .control output {
-      color: var(--accent);
+    .title-row span {
+      display: block;
+      color: var(--muted);
+      font-size: 9px;
+      letter-spacing: .04em;
+    }
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 2px;
+    }
+    .tab, .mode-button {
+      min-height: 28px;
+      padding: 0 3px;
+      color: #fff;
+      border: 0;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, .2);
+      cursor: pointer;
+    }
+    .tab.active, .mode-button.active { background: var(--accent-soft); }
+    .modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+      margin-top: 4px;
+    }
+    .mode-button { min-height: 24px; }
+    .panel {
+      margin-top: 7px;
+      padding: 7px 5px 3px;
+      border-top: 1px solid var(--line);
+    }
+    .panel[hidden] { display: none; }
+    .row {
+      display: grid;
+      grid-template-columns: minmax(88px, auto) 1fr;
+      align-items: center;
+      gap: 7px;
+      min-height: 29px;
+    }
+    .row label { color: #eef4fb; white-space: nowrap; }
+    .row output {
+      color: #bfd7ff;
       font-variant-numeric: tabular-nums;
-      font-size: 12px;
     }
-
+    .slider-wrap {
+      display: grid;
+      grid-template-columns: 1fr 58px;
+      align-items: center;
+      gap: 6px;
+    }
     input[type="range"] {
-      grid-column: 1 / -1;
       width: 100%;
-      height: 4px;
-      margin: 4px 0 0;
+      height: 3px;
+      margin: 0;
       accent-color: var(--accent);
       cursor: pointer;
     }
-
-    .actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr 42px;
-      gap: 8px;
-      margin-top: 17px;
-    }
-
-    button {
-      min-height: 38px;
-      padding: 0 13px;
-      color: var(--ink);
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      background: rgba(255, 255, 255, .07);
-      font: inherit;
-      font-size: 12px;
-      font-weight: 650;
+    input[type="checkbox"] {
+      width: 34px;
+      height: 18px;
+      justify-self: end;
+      accent-color: var(--accent);
       cursor: pointer;
     }
-
-    button:hover, button:focus-visible {
-      border-color: rgba(121, 216, 255, .55);
-      background: rgba(121, 216, 255, .12);
-      outline: none;
+    .switch-pair {
+      display: grid;
+      grid-template-columns: 38px auto 34px auto 34px;
+      align-items: center;
+      gap: 5px;
+      min-height: 30px;
     }
-
-    button.primary {
-      color: #06121e;
-      border-color: transparent;
-      background: linear-gradient(120deg, var(--accent), #c3efff);
+    .switch-pair input { width: 30px; height: 17px; }
+    .environments {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 5px;
+      margin-top: 6px;
     }
-
-    .hint {
-      position: fixed;
-      z-index: 2;
-      right: 24px;
-      bottom: max(25px, env(safe-area-inset-bottom));
-      max-width: 290px;
-      color: rgba(222, 237, 250, .62);
-      font-size: 12px;
-      line-height: 1.55;
-      text-align: right;
-      text-shadow: 0 1px 10px #07111f;
+    .environment {
+      padding: 2px;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.35);
+      border-radius: 4px;
+      background: rgba(0,0,0,.2);
+      cursor: pointer;
     }
-
+    .environment.active { border: 2px solid var(--accent); padding: 1px; }
+    .environment img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 2 / 1;
+      object-fit: cover;
+      border-radius: 2px;
+    }
+    .environment span {
+      display: block;
+      padding: 3px 0 1px;
+      font-size: 9px;
+      text-align: center;
+    }
+    .frequency {
+      margin: 5px 0;
+      color: #bfd7ff;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      margin-top: 7px;
+    }
+    .action {
+      min-height: 31px;
+      padding: 0 10px;
+      color: #fff;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: rgba(255,255,255,.08);
+      cursor: pointer;
+    }
+    .action.primary, .action.held { background: #326dcc; border-color: #6ea8ff; }
+    .note {
+      margin: 7px 0 2px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+    }
     .error {
       position: fixed;
-      z-index: 10;
+      z-index: 20;
       inset: 0;
       display: none;
       place-items: center;
       padding: 30px;
-      background: #07111f;
+      background: #07101b;
       text-align: center;
     }
-
     .error.visible { display: grid; }
-    .error div { max-width: 520px; }
-    .error h1 { font-family: Georgia, serif; }
+    .error div { max-width: 540px; }
+    .error h1 { font: 600 28px Georgia, serif; }
     .error p { color: var(--muted); line-height: 1.7; }
 
-    @media (max-width: 700px) {
-      .topbar { padding-inline: 16px; }
-      .brand span { display: none; }
+    @media (max-width: 680px) {
       .control-panel {
-        left: 12px;
-        bottom: max(12px, env(safe-area-inset-bottom));
-        width: calc(100vw - 24px);
-        padding: 14px;
+        top: auto;
+        right: 8px;
+        bottom: max(8px, env(safe-area-inset-bottom));
+        left: 8px;
+        width: auto;
+        max-height: 46dvh;
       }
-      .control { margin: 9px 0; }
-      .hint { display: none; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      * { scroll-behavior: auto !important; }
+      .topbar { left: 8px; justify-content: flex-end; flex-wrap: wrap; }
+      .title-row { display: none; }
+      .panel { padding-top: 4px; }
     }
   </style>
 </head>
 <body>
-  <canvas id="scene" aria-label="可交互的肥皂泡 WebGL2 渲染"></canvas>
+  <canvas id="scene" aria-label="WebGL2 实时泡泡渲染画面"></canvas>
 
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark" aria-hidden="true"></div>
-      <div><strong>Bubble Lab</strong><span>Thin-film interference · WebGL2</span></div>
-    </div>
+  <div class="topbar">
+    <span class="status" id="loading-label">正在初始化 HDR</span>
+    <span class="status" id="counts">单泡泡预览</span>
+    <span class="status" id="fps">0.0 FPS</span>
     <a class="back-link" href="../#projects">返回主页</a>
-  </header>
+  </div>
 
-  <aside class="control-panel" aria-label="渲染参数">
-    <div class="panel-heading">
-      <h1>实时泡泡实验</h1>
-      <span id="bubble-count">0 个泡泡</span>
+  <aside class="control-panel" aria-label="泡泡渲染参数">
+    <div class="title-row">
+      <span class="title-mark" aria-hidden="true"></span>
+      <div><strong>透明物体实时色散渲染系统</strong><span>HarmonyOS OpenGL ES → WebGL2</span></div>
     </div>
 
-    <div class="control">
-      <label for="thickness">薄膜厚度</label>
-      <output id="thickness-value" for="thickness">430 nm</output>
-      <input id="thickness" type="range" min="180" max="950" step="1" value="430">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="environment" role="tab" aria-selected="true">环境</button>
+      <button class="tab" data-tab="furnace" role="tab" aria-selected="false">白炉</button>
+      <button class="tab" data-tab="material" role="tab" aria-selected="false">材质</button>
+      <button class="tab" data-tab="flow" role="tab" aria-selected="false">流动</button>
+      <button class="tab" data-tab="launch" role="tab" aria-selected="false">发射</button>
+      <button class="tab" data-tab="deformation" role="tab" aria-selected="false">形变</button>
     </div>
 
-    <div class="control">
-      <label for="flow">厚度流动</label>
-      <output id="flow-value" for="flow">45%</output>
-      <input id="flow" type="range" min="0" max="100" step="1" value="45">
+    <div class="modes">
+      <button id="mode-observe" class="mode-button active" type="button" aria-pressed="true">观察</button>
+      <button id="mode-interact" class="mode-button" type="button" aria-pressed="false">互动</button>
     </div>
 
-    <div class="control">
-      <label for="tension">表面张力</label>
-      <output id="tension-value" for="tension">55%</output>
-      <input id="tension" type="range" min="10" max="100" step="1" value="55">
-    </div>
+    <section class="panel" data-panel="environment">
+      <div class="row">
+        <label for="showcase">展示模式</label>
+        <input id="showcase" type="checkbox">
+      </div>
+      <div class="environments" aria-label="HDR 环境图">
+        <button class="environment active" data-environment="0" type="button" aria-pressed="true">
+          <img src="assets/thumbs/env_christmas.png" alt=""><span>摄影棚</span>
+        </button>
+        <button class="environment" data-environment="1" type="button" aria-pressed="false">
+          <img src="assets/thumbs/env_graaff_reinet.png" alt=""><span>教堂</span>
+        </button>
+        <button class="environment" data-environment="2" type="button" aria-pressed="false">
+          <img src="assets/thumbs/env_qwantani.png" alt=""><span>月夜</span>
+        </button>
+        <button class="environment" data-environment="3" type="button" aria-pressed="false">
+          <img src="assets/thumbs/env_rogland.png" alt=""><span>晴夜</span>
+        </button>
+      </div>
+      <p class="note">4 张原工程 2K 线性 HDR 环境图。观察模式拖动可绕 Y 轴旋转相机。</p>
+    </section>
 
-    <div class="actions">
-      <button class="primary" id="add" type="button">吹一个泡泡</button>
-      <button id="reset" type="button">重置场景</button>
-      <button id="pause" type="button" aria-pressed="false" aria-label="暂停动画">Ⅱ</button>
-    </div>
+    <section class="panel" data-panel="furnace" hidden>
+      <div class="row">
+        <label for="white-furnace">白炉测试</label>
+        <input id="white-furnace" data-param="whiteFurnace" type="checkbox">
+      </div>
+      <div class="switch-pair">
+        <span>背面</span><label for="back-t">透射</label>
+        <input id="back-t" data-param="backTransmission" type="checkbox" checked>
+        <label for="back-r">反射</label>
+        <input id="back-r" data-param="backReflection" type="checkbox" checked>
+      </div>
+      <div class="switch-pair">
+        <span>正面</span><label for="front-t">透射</label>
+        <input id="front-t" data-param="frontTransmission" type="checkbox" checked>
+        <label for="front-r">反射</label>
+        <input id="front-r" data-param="frontReflection" type="checkbox" checked>
+      </div>
+      <p class="note">保持原工程四个独立光学分部。全部开启时白炉应维持恒定能量。</p>
+    </section>
+
+    <section class="panel" data-panel="material" hidden>
+      <div class="row">
+        <label for="eta2">η₂ 薄膜 IOR</label>
+        <span class="slider-wrap"><input id="eta2" data-param="eta2" type="range" min="1" max="2.5" step=".01" value="1.33"><output data-output="eta2">1.33</output></span>
+      </div>
+      <div class="row">
+        <label for="film-thickness">d 膜厚</label>
+        <span class="slider-wrap"><input id="film-thickness" data-param="filmThickness" type="range" min="0" max="1200" step="1" value="400" data-precision="0" data-suffix=" nm"><output data-output="filmThickness">400 nm</output></span>
+      </div>
+      <div class="row">
+        <label for="eta3">η₃ 基底 IOR</label>
+        <span class="slider-wrap"><input id="eta3" data-param="eta3" type="range" min="1" max="5" step=".01" value="1"><output data-output="eta3">1.00</output></span>
+      </div>
+      <div class="row">
+        <label for="kappa3">κ₃ 消光系数</label>
+        <span class="slider-wrap"><input id="kappa3" data-param="kappa3" type="range" min="0" max="5" step=".01" value="0"><output data-output="kappa3">0.00</output></span>
+      </div>
+      <p class="note">参数变化时按 Belcour 三阶 Airy/XYZ 公式重建 256² RGBA16F 查找表。</p>
+    </section>
+
+    <section class="panel" data-panel="flow" hidden>
+      <div class="row">
+        <label for="flow-enabled">启用流动</label>
+        <input id="flow-enabled" data-param="flowEnabled" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="flow-scale">噪声尺度</label>
+        <span class="slider-wrap"><input id="flow-scale" data-param="flowNoiseScale" type="range" min=".1" max="4" step=".05" value="1"><output data-output="flowNoiseScale">1.00</output></span>
+      </div>
+      <div class="row">
+        <label for="flow-speed">流动速度</label>
+        <span class="slider-wrap"><input id="flow-speed" data-param="flowSpeed" type="range" min="0" max=".5" step=".01" value=".5"><output data-output="flowSpeed">0.50</output></span>
+      </div>
+      <div class="row">
+        <label for="flow-amplitude">膜厚振幅</label>
+        <span class="slider-wrap"><input id="flow-amplitude" data-param="flowAmplitude" type="range" min="0" max="600" step="5" value="150" data-precision="0" data-suffix=" nm"><output data-output="flowAmplitude">150 nm</output></span>
+      </div>
+      <p class="note">固定种子 64² value noise，三平面投影只改变局部膜厚。</p>
+    </section>
+
+    <section class="panel" data-panel="launch" hidden>
+      <div class="row">
+        <label for="motion-speed">初速度</label>
+        <span class="slider-wrap"><input id="motion-speed" data-param="motionSpeed" type="range" min="0" max="10" step=".1" value="1" data-suffix=" m/s"><output data-output="motionSpeed">1.00 m/s</output></span>
+      </div>
+      <div class="row">
+        <label for="drag-coefficient">阻力 C<sub>d</sub></label>
+        <span class="slider-wrap"><input id="drag-coefficient" data-param="dragCoefficient" type="range" min="0" max="1" step=".01" value=".47"><output data-output="dragCoefficient">0.47</output></span>
+      </div>
+      <div class="row">
+        <label for="randomize">随机泡泡属性</label>
+        <input id="randomize" data-param="randomize" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="adhesion">碰撞连接</label>
+        <input id="adhesion" data-param="adhesion" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="wetness">泡沫湿度</label>
+        <span class="slider-wrap"><input id="wetness" data-param="wetness" type="range" min="0" max="1" step=".01" value=".65"><output data-output="wetness">0.65</output></span>
+      </div>
+      <div class="actions">
+        <button class="action primary" id="launch" type="button">按住发射</button>
+        <button class="action" id="clear" type="button">清空</button>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="deformation" hidden>
+      <div class="row">
+        <label for="deformation-enabled">启用形变</label>
+        <input id="deformation-enabled" data-param="deformationEnabled" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="radius">物理半径</label>
+        <span class="slider-wrap"><input id="radius" data-param="radiusCentimeters" type="range" min="1" max="8" step=".1" value="3" data-precision="1" data-suffix=" cm"><output data-output="radiusCentimeters">3.0 cm</output></span>
+      </div>
+      <div class="row">
+        <label for="surface-tension">表面张力</label>
+        <span class="slider-wrap"><input id="surface-tension" data-param="surfaceTensionMilliNewtons" type="range" min="15" max="40" step=".5" value="25" data-precision="1" data-suffix=" mN/m"><output data-output="surfaceTensionMilliNewtons">25.0 mN/m</output></span>
+      </div>
+      <div class="row">
+        <label for="damping">阻尼比</label>
+        <span class="slider-wrap"><input id="damping" data-param="dampingRatio" type="range" min=".01" max=".5" step=".01" value=".08"><output data-output="dampingRatio">0.08</output></span>
+      </div>
+      <p class="frequency">l=2 Rayleigh–Lamb 解析振荡 · 体积保持矩阵指数</p>
+      <div class="row">
+        <label for="single-preview">单泡泡预览</label>
+        <input id="single-preview" data-param="singlePreview" type="checkbox" checked>
+      </div>
+      <p class="note">互动模式：拖拽泡泡、空白滑动施加气流/切断连接、双击泡泡使其爆裂。</p>
+    </section>
   </aside>
-
-  <p class="hint">拖动泡泡改变位置 · 双击空白处生成泡泡<br>实时计算薄膜干涉、菲涅耳反射与厚度流动</p>
 
   <section class="error" id="error" role="alert">
     <div>
-      <h1>浏览器暂不支持 WebGL2</h1>
-      <p>请使用最新版 Chrome、Edge、Firefox 或 Safari，并确认浏览器已启用硬件加速。</p>
+      <h1>无法启动完整 WebGL2 渲染管线</h1>
+      <p>该移植需要 WebGL2 与浮点颜色缓冲。请使用最新版 Chrome、Edge、Firefox 或 Safari，并启用硬件加速。</p>
+      <p id="error-detail"></p>
       <a class="back-link" href="../#projects">返回主页</a>
     </div>
   </section>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
