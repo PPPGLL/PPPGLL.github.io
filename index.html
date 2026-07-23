@@ -252,6 +252,24 @@
       font-weight: 600;
     }
 
+    .project-demo-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+      padding: 9px 14px;
+      color: var(--white);
+      background: var(--accent);
+      border-radius: 4px;
+      text-decoration: none;
+      transition: background .2s ease;
+    }
+    .project-demo-link:hover,
+    .project-demo-link:focus-visible {
+      color: var(--white);
+      background: #0d3156;
+    }
+
     .publication-entry {
       display: grid;
       grid-template-columns: 250px minmax(0, 1fr);
@@ -475,6 +493,9 @@
             <p class="item-meta">Competition project · Interactive demo</p>
             <h3>Bubble Rendering Demo</h3>
             <p>An interactive graphics demo that reproduces the colorful appearance of soap bubbles through thin-film interference, reflection, transmission, and spatially varying film thickness.</p>
+            <div class="item-links">
+              <a class="project-demo-link" href="bubble-demo/">Launch WebGL2 demo <span aria-hidden="true">→</span></a>
+            </div>
           </li>
         </ul>
       </div>
