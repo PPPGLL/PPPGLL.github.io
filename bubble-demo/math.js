@@ -161,7 +161,7 @@ export const m4 = {
   }
 };
 
-export function buildCamera(yaw, distance, aspect, fovDegrees = 45) {
+export function buildCamera(yaw, distance, aspect, fovDegrees = 60) {
   const position = [distance * Math.sin(yaw), 0, distance * Math.cos(yaw)];
   const forward = v3.normalize(v3.scale(position, -1));
   const right = v3.normalize(v3.cross(forward, [0, 1, 0]));

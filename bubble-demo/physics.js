@@ -356,15 +356,21 @@ export class BubbleSimulation {
 
   containerBounds(aspect) {
     const distance = 54;
-    const halfVertical = 22.5 * PI / 180;
+    const halfVertical = 30 * PI / 180;
     const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
     const maximumPhysicalRadius = Math.max(
       this.params.radiusCentimeters * .01,
       this.params.randomize ? .06 : 0
     ) * WORLD_UNITS_PER_METER;
     const radius = Math.max(.9 * distance * Math.sin(halfHorizontal), 1.5 * maximumPhysicalRadius);
+    // The original phone app used a portrait viewport. On a landscape web
+    // viewport its conservative "front edge of the full cylinder" term makes
+    // the vertical range collapse as the horizontal cylinder grows. Cap only
+    // that depth allowance, while keeping the original formula unchanged for
+    // portrait layouts.
+    const verticalDepthAllowance = Math.min(radius, .32 * distance);
     const halfHeight = Math.max(
-      .9 * Math.tan(halfVertical) * (distance - radius),
+      .9 * Math.tan(halfVertical) * (distance - verticalDepthAllowance),
       2 * maximumPhysicalRadius
     );
     return { radius, halfHeight };
@@ -658,17 +664,24 @@ export class BubbleSimulation {
       const firstOffset = x - x1Outer;
       const secondOffset = x2 - x2Outer;
       if (first.clipPlanes.length < 6) {
-        const point = v3.madd(first.position, normal, firstOffset);
-        first.clipPlanes.push([normal[0], normal[1], normal[2], -v3.dot(normal, point)]);
+        // Match the native plane exactly:
+        // dot(n, p - sharedCenter) + firstClearance > 0 is clipped.
+        // The previous port incorrectly measured firstClearance from the
+        // bubble center, which moved the plane deep inside the sphere.
+        first.clipPlanes.push([
+          normal[0],
+          normal[1],
+          normal[2],
+          -v3.dot(normal, center) + firstOffset
+        ]);
       }
       if (second.clipPlanes.length < 6) {
         const inverseNormal = v3.scale(normal, -1);
-        const point = v3.madd(second.position, inverseNormal, secondOffset);
         second.clipPlanes.push([
           inverseNormal[0],
           inverseNormal[1],
           inverseNormal[2],
-          -v3.dot(inverseNormal, point)
+          v3.dot(normal, center) + secondOffset
         ]);
       }
     }
