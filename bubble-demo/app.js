@@ -154,6 +154,10 @@ document.querySelector("#showcase").addEventListener("change", (event) => {
 const launchButton = document.querySelector("#launch");
 let launchTimer = 0;
 
+["selectstart", "contextmenu", "dragstart"].forEach((eventName) => {
+  launchButton.addEventListener(eventName, (event) => event.preventDefault());
+});
+
 function stopLaunching() {
   clearInterval(launchTimer);
   launchTimer = 0;

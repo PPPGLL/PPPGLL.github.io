@@ -29,6 +29,11 @@
       font-size: 12px;
     }
     button, input { font: inherit; }
+    button, .back-link {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
     canvas {
       position: fixed;
       inset: 0;
@@ -225,6 +230,7 @@
       background: rgba(255,255,255,.08);
       cursor: pointer;
     }
+    #launch { touch-action: none; }
     .action.primary, .action.held { background: #326dcc; border-color: #6ea8ff; }
     .note {
       margin: 7px 0 2px;
