@@ -153,19 +153,26 @@ document.querySelector("#showcase").addEventListener("change", (event) => {
 
 const launchButton = document.querySelector("#launch");
 let launchTimer = 0;
+let launchHeld = false;
 
 ["selectstart", "contextmenu", "dragstart"].forEach((eventName) => {
   launchButton.addEventListener(eventName, (event) => event.preventDefault());
+});
+document.addEventListener("selectstart", (event) => {
+  if (launchHeld) event.preventDefault();
 });
 
 function stopLaunching() {
   clearInterval(launchTimer);
   launchTimer = 0;
+  launchHeld = false;
   launchButton.classList.remove("held");
 }
 
 launchButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
+  launchHeld = true;
+  window.getSelection()?.removeAllRanges();
   simulation.launchBubble();
   launchButton.classList.add("held");
   launchButton.setPointerCapture(event.pointerId);
@@ -174,6 +181,7 @@ launchButton.addEventListener("pointerdown", (event) => {
 launchButton.addEventListener("pointerup", stopLaunching);
 launchButton.addEventListener("pointercancel", stopLaunching);
 launchButton.addEventListener("lostpointercapture", stopLaunching);
+window.addEventListener("blur", stopLaunching);
 
 document.querySelector("#clear").addEventListener("click", () => simulation.clear());
 
