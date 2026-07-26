@@ -295,6 +295,71 @@
 
     .publication-content p:last-of-type { margin-bottom: 14px; }
 
+    .project-entry {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr);
+      gap: 25px;
+      align-items: start;
+    }
+
+    .project-preview {
+      position: relative;
+      display: block;
+      overflow: hidden;
+      aspect-ratio: 2 / 1;
+      background:
+        linear-gradient(rgba(8, 18, 32, .18), rgba(8, 18, 32, .42)),
+        url("bubble-demo/assets/thumbs/env_graaff_reinet.png") center / cover;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+    }
+
+    .project-preview::before,
+    .project-preview::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 32% 26%, rgba(255,255,255,.8), transparent 8%),
+        radial-gradient(circle at 56% 58%, transparent 54%, rgba(255,255,255,.32) 58%, transparent 65%),
+        conic-gradient(from 20deg, rgba(93,204,255,.58), rgba(255,117,214,.5), rgba(255,230,96,.52), rgba(80,218,190,.5), rgba(93,204,255,.58));
+      border: 1px solid rgba(255, 255, 255, .76);
+      box-shadow:
+        inset -10px -8px 18px rgba(20, 34, 60, .28),
+        inset 8px 5px 14px rgba(255, 255, 255, .22),
+        0 8px 20px rgba(0, 0, 0, .22);
+      opacity: .9;
+    }
+
+    .project-preview::before {
+      width: 86px;
+      height: 86px;
+      top: 19px;
+      left: 80px;
+    }
+
+    .project-preview::after {
+      width: 44px;
+      height: 44px;
+      right: 24px;
+      bottom: 18px;
+    }
+
+    .project-preview-label {
+      position: absolute;
+      z-index: 1;
+      left: 10px;
+      bottom: 9px;
+      padding: 4px 7px;
+      color: var(--white);
+      background: rgba(10, 22, 38, .72);
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
     .publication-placeholder {
       padding: 26px;
       color: var(--muted);
@@ -356,6 +421,8 @@
       .section-note { max-width: 300px; }
       .publication-entry { grid-template-columns: 1fr; gap: 18px; }
       .publication-thumbnail { width: 100%; max-width: 420px; }
+      .project-entry { grid-template-columns: 1fr; gap: 18px; }
+      .project-preview { width: 100%; max-width: 420px; }
       .footer-inner { flex-direction: column; }
     }
 
@@ -489,12 +556,17 @@
           <p class="section-note">Selected demos</p>
         </div>
         <ul class="item-list">
-          <li class="item">
-            <p class="item-meta">Competition project · Interactive demo</p>
-            <h3>Bubble Rendering Demo</h3>
-            <p>The complete WebGL2 port of the original HarmonyOS/OpenGL ES project, including Belcour thin-film interference, HDR reflection and transmission, quadrupole deformation, multi-bubble physics, shared films, and interactive foam connections.</p>
-            <div class="item-links">
-              <a class="project-demo-link" href="bubble-demo/">Launch full WebGL2 port <span aria-hidden="true">→</span></a>
+          <li class="item project-entry">
+            <a class="project-preview" href="bubble-demo/" aria-label="Launch the Bubble Rendering Demo">
+              <span class="project-preview-label">Interactive WebGL2</span>
+            </a>
+            <div>
+              <p class="item-meta">Competition project · Interactive demo</p>
+              <h3>Bubble Rendering Demo</h3>
+              <p>The complete WebGL2 port of the original HarmonyOS/OpenGL ES project, including Belcour thin-film interference, HDR reflection and transmission, quadrupole deformation, multi-bubble physics, shared films, and interactive foam connections.</p>
+              <div class="item-links">
+                <a class="project-demo-link" href="bubble-demo/">Launch full WebGL2 port <span aria-hidden="true">→</span></a>
+              </div>
             </div>
           </li>
         </ul>
