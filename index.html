@@ -307,42 +307,17 @@
       display: block;
       overflow: hidden;
       aspect-ratio: 2 / 1;
-      background:
-        linear-gradient(rgba(8, 18, 32, .18), rgba(8, 18, 32, .42)),
-        url("bubble-demo/assets/thumbs/env_graaff_reinet.png") center / cover;
+      background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 3px;
     }
 
-    .project-preview::before,
-    .project-preview::after {
-      content: "";
-      position: absolute;
-      border-radius: 50%;
-      background:
-        radial-gradient(circle at 32% 26%, rgba(255,255,255,.8), transparent 8%),
-        radial-gradient(circle at 56% 58%, transparent 54%, rgba(255,255,255,.32) 58%, transparent 65%),
-        conic-gradient(from 20deg, rgba(93,204,255,.58), rgba(255,117,214,.5), rgba(255,230,96,.52), rgba(80,218,190,.5), rgba(93,204,255,.58));
-      border: 1px solid rgba(255, 255, 255, .76);
-      box-shadow:
-        inset -10px -8px 18px rgba(20, 34, 60, .28),
-        inset 8px 5px 14px rgba(255, 255, 255, .22),
-        0 8px 20px rgba(0, 0, 0, .22);
-      opacity: .9;
-    }
-
-    .project-preview::before {
-      width: 86px;
-      height: 86px;
-      top: 19px;
-      left: 80px;
-    }
-
-    .project-preview::after {
-      width: 44px;
-      height: 44px;
-      right: 24px;
-      bottom: 18px;
+    .project-preview img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
     }
 
     .project-preview-label {
@@ -558,6 +533,7 @@
         <ul class="item-list">
           <li class="item project-entry">
             <a class="project-preview" href="bubble-demo/" aria-label="Launch the Bubble Rendering Demo">
+              <img src="assets/bubble-demo-preview.png" alt="Bubble rendering demo showing iridescent soap bubbles in a studio scene">
               <span class="project-preview-label">Interactive WebGL2</span>
             </a>
             <div>
