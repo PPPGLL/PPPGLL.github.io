@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-5";
+} from "./math.js?v=20260807-6";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -13,7 +13,6 @@ const LIQUID_DENSITY = 1000;
 const GRAVITY = 9.81;
 const MAX_BUBBLES = 64;
 const MAX_EDITOR_BUBBLES = 128;
-const SHOWCASE_MAX_BUBBLES = 32;
 const COLLISION_ITERATIONS = 6;
 const MAX_SPEED = 10;
 
@@ -65,7 +64,6 @@ export class BubbleSimulation {
       wetness: .65,
       singlePreview: false,
       interactionMode: true,
-      showcaseMode: false,
       workspaceMode: "static",
       toolMode: "edit",
       cameraDistance: 54,
@@ -229,19 +227,6 @@ export class BubbleSimulation {
     this.selectedIds = [];
   }
 
-  setShowcaseMode(enabled) {
-    this.params.showcaseMode = enabled;
-    if (enabled && this.bubbles.length > SHOWCASE_MAX_BUBBLES) {
-      const removed = new Set(
-        this.bubbles.splice(0, this.bubbles.length - SHOWCASE_MAX_BUBBLES)
-          .map((bubble) => bubble.id)
-      );
-      this.bonds = this.bonds.filter(
-        (bond) => !removed.has(bond.firstId) && !removed.has(bond.secondId)
-      );
-    }
-  }
-
   getCamera(aspect) {
     const distance = this.params.singlePreview ? 8 : this.params.cameraDistance;
     return buildCamera(
@@ -327,7 +312,7 @@ export class BubbleSimulation {
 
   launchBubble() {
     this.params.singlePreview = false;
-    const maximum = this.params.showcaseMode ? SHOWCASE_MAX_BUBBLES : MAX_BUBBLES;
+    const maximum = MAX_BUBBLES;
     while (this.bubbles.length >= maximum) {
       const removedId = this.bubbles.shift().id;
       this.bonds = this.bonds.filter((bond) => bond.firstId !== removedId && bond.secondId !== removedId);
@@ -508,7 +493,7 @@ export class BubbleSimulation {
   exportScene() {
     return {
       version: 5,
-      params: { ...this.params, showcaseMode: false },
+      params: { ...this.params },
       cameraYaw: this.cameraYaw,
       cameraPitch: this.cameraPitch,
       cameraTarget: [...this.cameraTarget],
@@ -527,6 +512,7 @@ export class BubbleSimulation {
   importScene(snapshot) {
     if (!snapshot || !Array.isArray(snapshot.bubbles) || !Array.isArray(snapshot.bonds)) return false;
     Object.assign(this.params, snapshot.params || {});
+    delete this.params.showcaseMode;
     if (this.params.toolMode === "edit") this.params.workspaceMode = "static";
     this.cameraYaw = Number(snapshot.cameraYaw) || 0;
     this.cameraPitch = clamp(Number(snapshot.cameraPitch) || 0, -85 * PI / 180, 85 * PI / 180);
@@ -801,7 +787,6 @@ export class BubbleSimulation {
   update(deltaTime, aspect) {
     const dt = clamp(deltaTime, 0, .05);
     this.elapsed += dt;
-    if (this.params.showcaseMode) this.cameraYaw += 12 * PI / 180 * dt;
     if (this.params.singlePreview) {
       const target = this.calculateAerodynamicQuadrupole(
         [0, this.params.motionSpeed, 0],

@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-5";
-import { BubbleRenderer } from "./renderer.js?v=20260807-5";
-import { rayFromScreen } from "./math.js?v=20260807-5";
+import { BubbleSimulation } from "./physics.js?v=20260807-6";
+import { BubbleRenderer } from "./renderer.js?v=20260807-6";
+import { rayFromScreen } from "./math.js?v=20260807-6";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
@@ -131,40 +131,6 @@ editButton.addEventListener("click", () => {
   updateModeButtons();
 });
 
-const environmentButtons = [...document.querySelectorAll("[data-environment]")];
-
-function selectEnvironment(index) {
-  environmentButtons.forEach((button, buttonIndex) => {
-    button.classList.toggle("active", buttonIndex === index);
-    button.setAttribute("aria-pressed", String(buttonIndex === index));
-  });
-  renderer.setEnvironment(index);
-}
-
-environmentButtons.forEach((button, index) => {
-  button.addEventListener("click", () => selectEnvironment(index));
-});
-
-let showcaseLaunchTimer = 0;
-
-function stopShowcaseTimers() {
-  clearInterval(showcaseLaunchTimer);
-  showcaseLaunchTimer = 0;
-}
-
-document.querySelector("#showcase").addEventListener("change", (event) => {
-  simulation.setShowcaseMode(event.target.checked);
-  stopShowcaseTimers();
-  if (!event.target.checked) return;
-  simulation.setWorkspaceMode("realtime");
-  simulation.setToolMode("browse");
-  updateModeButtons();
-  simulation.params.singlePreview = false;
-  document.querySelector('[data-param="singlePreview"]').checked = false;
-  simulation.launchBubble();
-  showcaseLaunchTimer = window.setInterval(() => simulation.launchBubble(), 66);
-});
-
 const launchButton = document.querySelector("#launch");
 let launchTimer = 0;
 let launchHeld = false;
@@ -216,15 +182,6 @@ function centerRay() {
   return rayFromScreen(camera, rect.width * .5, rect.height * .5, rect.width, rect.height);
 }
 
-document.querySelector("#add-bubbles").addEventListener("click", () => {
-  if (simulation.params.workspaceMode !== "static") {
-    simulation.setWorkspaceMode("static");
-    simulation.setToolMode("edit");
-    updateModeButtons();
-  }
-  simulation.addBubblesAtRay(centerRay(), camera, 1);
-  updateSelectionPanel();
-});
 document.querySelector("#random-place").addEventListener("click", () => {
   if (simulation.params.workspaceMode !== "static") {
     simulation.setWorkspaceMode("static");
@@ -618,6 +575,5 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-window.addEventListener("beforeunload", stopShowcaseTimers);
 updateModeButtons();
 requestAnimationFrame(frame);

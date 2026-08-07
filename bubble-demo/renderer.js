@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-5";
+import { v3, m3 } from "./math.js?v=20260807-6";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-5";
+} from "./optics.js?v=20260807-6";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"

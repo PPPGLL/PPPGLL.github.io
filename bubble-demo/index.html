@@ -161,7 +161,6 @@
       gap: 2px;
       margin-top: 4px;
     }
-    .top-actions { grid-template-columns: repeat(3, 1fr); }
     .edit-actions .action { min-height: 25px; padding: 0 4px; font-size: 10px; }
     .mode-button { min-height: 24px; }
     .panel {
@@ -210,42 +209,6 @@
       min-height: 30px;
     }
     .switch-pair input { width: 30px; height: 17px; }
-    .environments {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 5px;
-      margin-top: 6px;
-    }
-    .environment {
-      padding: 2px;
-      color: #fff;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 4px;
-      background: rgba(0,0,0,.2);
-      cursor: pointer;
-    }
-    .environment.active { border: 2px solid var(--accent); padding: 1px; }
-    .environment img {
-      display: block;
-      width: 100%;
-      aspect-ratio: 2 / 1;
-      object-fit: cover;
-      border-radius: 2px;
-    }
-    .environment::before {
-      content: "";
-      display: block;
-      aspect-ratio: 2 / 1;
-      border-radius: 2px;
-      background: linear-gradient(135deg, #1f3851, #7ca6a5 48%, #d5c99e);
-    }
-    .environment::before { background: linear-gradient(135deg, #75b4db, #bad6c6 52%, #e3d49e); }
-    .environment span {
-      display: block;
-      padding: 3px 0 1px;
-      font-size: 9px;
-      text-align: center;
-    }
     .frequency {
       margin: 5px 0;
       color: #bfd7ff;
@@ -267,11 +230,11 @@
     }
     #launch { touch-action: none; }
     .action.primary, .action.held { background: #326dcc; border-color: #6ea8ff; }
-    .note {
-      margin: 7px 0 2px;
+    .placement-hint {
+      margin: 5px 0 0;
       color: var(--muted);
       font-size: 10px;
-      line-height: 1.5;
+      text-align: center;
     }
     .selection-box {
       position: fixed;
@@ -346,7 +309,7 @@
     </div>
 
     <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="environment" role="tab" aria-selected="true">环境</button>
+      <button class="tab active" data-tab="environment" role="tab" aria-selected="true">场景</button>
       <button class="tab" data-tab="furnace" role="tab" aria-selected="false">显示</button>
       <button class="tab" data-tab="material" role="tab" aria-selected="false">材质</button>
       <button class="tab" data-tab="flow" role="tab" aria-selected="false">流动</button>
@@ -361,13 +324,13 @@
       <button id="tool-browse" class="mode-button" type="button">浏览</button>
       <button id="tool-edit" class="mode-button active" type="button">编辑</button>
     </div>
-    <div class="edit-actions top-actions">
-      <button class="action" id="add-bubbles" type="button">放置单泡</button>
+    <div class="edit-actions">
       <button class="action primary" id="random-place" type="button">随机多泡</button>
       <button class="action" id="snapshot-save" type="button">保存场景</button>
       <button class="action" id="snapshot-load" type="button">读取场景</button>
       <button class="action" id="clear-top" type="button">清空</button>
     </div>
+    <p class="placement-hint">双击空白处可放置泡泡</p>
 
     <section class="selected-panel" id="selected-panel" hidden>
       <div class="selected-heading"><strong id="selected-heading">选中泡泡</strong><span id="selected-count">1 个</span></div>
@@ -390,21 +353,11 @@
     </section>
 
     <section class="panel" data-panel="environment">
-      <div class="row">
-        <label for="showcase">展示模式</label>
-        <input id="showcase" type="checkbox">
-      </div>
-      <div class="environments" aria-label="HDR 环境图">
-        <button class="environment active" data-environment="0" type="button" aria-pressed="true">
-          <span>冯德尔公园</span>
-        </button>
-      </div>
       <div class="row"><label for="resolution-scale">3D 渲染比例</label><span class="slider-wrap"><input id="resolution-scale" data-param="renderResolutionScale" data-format="percent" type="range" min=".5" max="1" step=".05" value="1"><output data-output="renderResolutionScale">100%</output></span></div>
       <div class="row">
         <label for="fxaa-enabled">FXAA 边缘抗锯齿</label>
         <input id="fxaa-enabled" data-param="fxaaEnabled" type="checkbox" checked>
       </div>
-      <p class="note">100% 对应设备完整物理像素。静态编辑下双击空白处放置泡泡；长按空白 250ms 后拖动可框选多个泡泡。</p>
     </section>
 
     <section class="panel" data-panel="furnace" hidden>
@@ -448,7 +401,6 @@
         <label for="front-r">反射</label>
         <input id="front-r" data-param="frontReflection" type="checkbox" checked>
       </div>
-      <p class="note">保持原工程四个独立光学分部。全部开启时白炉应维持恒定能量。</p>
     </section>
 
     <section class="panel" data-panel="material" hidden>
@@ -472,7 +424,6 @@
         <label for="plateau-strength">Plateau 边界</label>
         <span class="slider-wrap"><input id="plateau-strength" data-param="plateauBorderStrength" type="range" min="0" max="3" step=".01" value="1"><output data-output="plateauBorderStrength">1.00</output></span>
       </div>
-      <p class="note">参数变化时按 Belcour 三阶 Airy/XYZ 公式重建 256² RGBA16F 查找表。</p>
     </section>
 
     <section class="panel" data-panel="flow" hidden>
@@ -492,7 +443,6 @@
         <label for="flow-amplitude">膜厚振幅</label>
         <span class="slider-wrap"><input id="flow-amplitude" data-param="flowAmplitude" type="range" min="0" max="600" step="5" value="150" data-precision="0" data-suffix=" nm"><output data-output="flowAmplitude">150 nm</output></span>
       </div>
-      <p class="note">固定种子 64² value noise，三平面投影只改变局部膜厚。</p>
     </section>
 
     <section class="panel" data-panel="launch" hidden>
@@ -568,7 +518,6 @@
         <label for="single-preview">单泡泡预览</label>
         <input id="single-preview" data-param="singlePreview" type="checkbox" checked>
       </div>
-      <p class="note">互动模式：拖拽泡泡、空白滑动施加气流/切断连接、双击泡泡使其爆裂。</p>
     </section>
 
     <section class="panel" data-panel="camera" hidden>
@@ -578,7 +527,6 @@
       <div class="row"><label for="bubble-blend">泡泡法线融合</label><span class="slider-wrap"><input id="bubble-blend" data-param="bubbleNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".35"><output data-output="bubbleNormalBlendStrength">0.35</output></span></div>
       <div class="row"><label for="film-blend">共享膜法线融合</label><span class="slider-wrap"><input id="film-blend" data-param="sharedFilmNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".55"><output data-output="sharedFilmNormalBlendStrength">0.55</output></span></div>
       <div class="row"><label for="border-blend">边界法线融合</label><span class="slider-wrap"><input id="border-blend" data-param="plateauBorderNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".28"><output data-output="plateauBorderNormalBlendStrength">0.28</output></span></div>
-      <p class="note">拖动空白处可自由环绕视角；按住 Shift 或鼠标右键拖动可平移；滚轮缩放。触屏设备支持双指平移和缩放。</p>
     </section>
   </aside>
 
@@ -591,6 +539,6 @@
     </div>
   </section>
 
-  <script type="module" src="app.js?v=20260807-5"></script>
+  <script type="module" src="app.js?v=20260807-6"></script>
 </body>
 </html>
