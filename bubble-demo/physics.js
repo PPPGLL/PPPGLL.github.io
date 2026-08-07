@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-9";
+} from "./math.js?v=20260807-12";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -15,6 +15,11 @@ const MAX_BUBBLES = 64;
 const MAX_EDITOR_BUBBLES = 128;
 const COLLISION_ITERATIONS = 6;
 const MAX_SPEED = 10;
+// The simulation volume is a world-space cylinder and must not breathe when
+// the user zooms, changes FOV, or resizes the viewport. These dimensions keep
+// the approved 16:9 framing at the original 54 m / 60° reference camera.
+const FIXED_CONTAINER_RADIUS = 34.81015676534732;
+const FIXED_CONTAINER_HALF_HEIGHT = 19.080271696178748;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -73,7 +78,7 @@ export class BubbleSimulation {
       cameraDistance: 54,
       cameraFov: 60,
       renderResolutionScale: 1,
-      fxaaEnabled: true,
+      fxaaEnabled: false,
       bubbleOnlyOutput: false,
       plateauBorderStrength: 1,
       normalBlendWidthScale: .055,
@@ -211,7 +216,8 @@ export class BubbleSimulation {
     this.interaction = this.createInteractionState();
     this.selectedIds = [];
     this.bubbles.forEach((bubble) => {
-      bubble.moving = this.params.workspaceMode === "realtime";
+      bubble.moving = this.params.workspaceMode === "realtime"
+        && this.params.toolMode !== "edit";
       if (!bubble.moving) bubble.velocity = [0, 0, 0];
     });
     if (this.params.workspaceMode === "static") {
@@ -225,6 +231,14 @@ export class BubbleSimulation {
 
   setToolMode(mode) {
     this.params.toolMode = mode === "browse" ? "browse" : "edit";
+    if (this.params.toolMode === "edit") {
+      this.bubbles.forEach((bubble) => {
+        bubble.velocity = [0, 0, 0];
+        bubble.moving = false;
+      });
+    } else if (this.params.workspaceMode === "realtime") {
+      this.bubbles.forEach((bubble) => { bubble.moving = true; });
+    }
     this.interaction = this.createInteractionState();
     this.selectedIds = [];
   }
@@ -735,27 +749,11 @@ export class BubbleSimulation {
     return this.nextRandom() < probability && this.createBond(first, second);
   }
 
-  containerBounds(aspect) {
-    const distance = this.params.cameraDistance;
-    const halfVertical = .5 * this.params.cameraFov * PI / 180;
-    const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
-    const maximumPhysicalRadius = Math.max(
-      this.params.radiusCentimeters * .01,
-      this.params.randomize ? .06 : 0,
-      ...this.bubbles.map((bubble) => bubble.physicalRadius)
-    ) * WORLD_UNITS_PER_METER;
-    const radius = Math.max(.9 * distance * Math.sin(halfHorizontal), 1.5 * maximumPhysicalRadius);
-    // The original phone app used a portrait viewport. On a landscape web
-    // viewport its conservative "front edge of the full cylinder" term makes
-    // the vertical range collapse as the horizontal cylinder grows. Cap only
-    // that depth allowance, while keeping the original formula unchanged for
-    // portrait layouts.
-    const verticalDepthAllowance = Math.min(radius, .32 * distance);
-    const halfHeight = Math.max(
-      .9 * Math.tan(halfVertical) * (distance - verticalDepthAllowance),
-      2 * maximumPhysicalRadius
-    );
-    return { radius, halfHeight };
+  containerBounds() {
+    return {
+      radius: FIXED_CONTAINER_RADIUS,
+      halfHeight: FIXED_CONTAINER_HALF_HEIGHT
+    };
   }
 
   solveCollision(first, second, firstIndex, secondIndex, firstIteration) {
@@ -895,7 +893,11 @@ export class BubbleSimulation {
       return;
     }
 
-    if (this.params.workspaceMode === "static") {
+    if (this.params.workspaceMode === "static" || this.params.toolMode === "edit") {
+      this.bubbles.forEach((bubble) => {
+        bubble.velocity = [0, 0, 0];
+        bubble.moving = false;
+      });
       this.rebuildConnectionGeometry();
       return;
     }
@@ -1223,14 +1225,15 @@ export class BubbleSimulation {
         );
         this.interaction.previousTarget = v3.clone(target);
         this.interaction.targetPosition = target;
-        if (this.params.workspaceMode === "static") {
+        if (this.params.toolMode === "edit") {
           this.interaction.groupDragIds.forEach((id, index) => {
             const bubble = this.findBubble(id);
             if (!bubble) return;
             bubble.position = v3.add(target, this.interaction.groupDragOffsets[index] || [0, 0, 0]);
             bubble.velocity = [0, 0, 0];
           });
-          this.rebuildEditorOverlapBonds();
+          if (this.params.workspaceMode === "static") this.rebuildEditorOverlapBonds();
+          else this.rebuildConnectionGeometry();
         }
       }
     } else {
@@ -1242,13 +1245,13 @@ export class BubbleSimulation {
 
   pointerUp() {
     const selected = this.findBubble(this.interaction.selectedId);
-    if (selected && this.interaction.movedPixels >= 14) {
+    if (this.params.toolMode !== "edit" && selected && this.interaction.movedPixels >= 14) {
       selected.velocity = v3.clampLength(v3.add(
         selected.velocity,
         v3.scale(this.interaction.targetVelocity, .35)
       ), MAX_SPEED);
     }
-    if (this.params.workspaceMode !== "static") {
+    if (this.params.workspaceMode !== "static" && this.params.toolMode !== "edit") {
       this.interaction.selectedId = 0;
       this.selectedIds = [];
     }
