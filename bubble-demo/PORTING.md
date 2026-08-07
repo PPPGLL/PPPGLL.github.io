@@ -7,11 +7,13 @@
 
 | 原工程 | WebGL2 版本 |
 | --- | --- |
-| `Index.ets` 参数与交互 | `index.html`、`app.js` |
-| `napi_init.cpp` 物理、LUT、资源管理 | `physics.js`、`optics.js` |
-| `shader_refraction.h` | `renderer.js` 中的球体与连接膜 GLSL ES 3.00 |
-| `shader_quad.h` | `renderer.js` 中的最终合成与 ACES pass |
-| `rawfile/envmap/*.hdr` | `assets/envmap/*.hdr`（原 2K 资源） |
+| `Index.ets`、`native_touch_controller.cpp` 参数与交互 | `index.html`、`app.js` |
+| `bubble_solver.cpp`、`scene_settings.h` | `physics.js` |
+| `thin_film_lut.cpp` | `optics.js` |
+| `shader_bubble_body.h` | `renderer.js` 中的泡泡主体 GLSL ES 3.00 |
+| `shader_shared_film.h`、`shader_plateau_border.h` | `renderer.js` 中的共享膜和 Plateau 边界 |
+| `shader_dof_blur.h`、`shader_final_composite.h` | `renderer.js` 中的景深、最终合成与 ACES pass |
+| `rawfile/envmap/*.hdr` | `assets/envmap/*.hdr`（最新版原始 4K 资源） |
 
 ## WebGL2 平台替代
 
@@ -25,7 +27,7 @@
 ## 已移植功能
 
 - Belcour/Barla 三层薄膜模型与 256×256 LUT
-- 四张原始 2K HDR 环境图、白炉测试和 ACES 输出
+- 三张最新版原始 4K HDR 环境图、白炉测试、泡泡独立输出和 ACES 输出
 - 64×64 固定种子 value noise 与三平面膜厚流动
 - SI 单位质量、浮力/重力、二次阻力和圆柱容器
 - 体积保持 `l=2` 四极形变与 Rayleigh–Lamb 解析积分
@@ -34,3 +36,8 @@
 - 曲面共享膜与三圆弧 Plateau 边界
 - 观察/互动模式、椭球拾取、软拖拽、局部气流、连接切断和双击爆裂
 - 长按 20 个/秒发射与自动展示模式
+- 静态编辑/动态模拟工作区，以及浏览/编辑工具切换
+- 点击生成随机泡泡簇、选中轮廓、拖拽、复制、缩放和删除
+- 重力缩放、竖直环境气流和随机深度分散
+- 单次/逐层景深近似、渲染分辨率与连接区域法线融合控制
+- 浏览器本地场景快照（对应原工程场景保存/读取工作流）

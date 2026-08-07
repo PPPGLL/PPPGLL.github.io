@@ -136,7 +136,7 @@
     }
     .tabs {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr);
       gap: 2px;
     }
     .tab, .mode-button {
@@ -155,6 +155,13 @@
       gap: 2px;
       margin-top: 4px;
     }
+    .workspace-row, .edit-actions {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
+      margin-top: 4px;
+    }
+    .edit-actions .action { min-height: 25px; padding: 0 4px; font-size: 10px; }
     .mode-button { min-height: 24px; }
     .panel {
       margin-top: 7px;
@@ -204,7 +211,7 @@
     .switch-pair input { width: 30px; height: 17px; }
     .environments {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 5px;
       margin-top: 6px;
     }
@@ -224,6 +231,15 @@
       object-fit: cover;
       border-radius: 2px;
     }
+    .environment::before {
+      content: "";
+      display: block;
+      aspect-ratio: 2 / 1;
+      border-radius: 2px;
+      background: linear-gradient(135deg, #1f3851, #7ca6a5 48%, #d5c99e);
+    }
+    .environment:nth-child(2)::before { background: linear-gradient(135deg, #22331e, #779063 45%, #d4c9a0); }
+    .environment:nth-child(3)::before { background: linear-gradient(135deg, #75b4db, #bad6c6 52%, #e3d49e); }
     .environment span {
       display: block;
       padding: 3px 0 1px;
@@ -305,16 +321,25 @@
 
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="environment" role="tab" aria-selected="true">环境</button>
-      <button class="tab" data-tab="furnace" role="tab" aria-selected="false">白炉</button>
+      <button class="tab" data-tab="furnace" role="tab" aria-selected="false">显示</button>
       <button class="tab" data-tab="material" role="tab" aria-selected="false">材质</button>
       <button class="tab" data-tab="flow" role="tab" aria-selected="false">流动</button>
       <button class="tab" data-tab="launch" role="tab" aria-selected="false">发射</button>
       <button class="tab" data-tab="deformation" role="tab" aria-selected="false">形变</button>
+      <button class="tab" data-tab="camera" role="tab" aria-selected="false">相机</button>
     </div>
 
-    <div class="modes">
-      <button id="mode-observe" class="mode-button active" type="button" aria-pressed="true">观察</button>
-      <button id="mode-interact" class="mode-button" type="button" aria-pressed="false">互动</button>
+    <div class="workspace-row" aria-label="场景工作区">
+      <button id="workspace-static" class="mode-button active" type="button">静态编辑</button>
+      <button id="workspace-realtime" class="mode-button" type="button">动态模拟</button>
+      <button id="tool-browse" class="mode-button" type="button">浏览</button>
+      <button id="tool-edit" class="mode-button active" type="button">编辑</button>
+    </div>
+    <div class="edit-actions">
+      <button class="action" id="add-bubbles" type="button">生成泡泡</button>
+      <button class="action" id="snapshot-save" type="button">保存场景</button>
+      <button class="action" id="snapshot-load" type="button">读取场景</button>
+      <button class="action" id="clear-top" type="button">清空</button>
     </div>
 
     <section class="panel" data-panel="environment">
@@ -324,25 +349,46 @@
       </div>
       <div class="environments" aria-label="HDR 环境图">
         <button class="environment active" data-environment="0" type="button" aria-pressed="true">
-          <img src="assets/thumbs/env_christmas.png" alt=""><span>摄影棚</span>
+          <span>瀑布</span>
         </button>
         <button class="environment" data-environment="1" type="button" aria-pressed="false">
-          <img src="assets/thumbs/env_graaff_reinet.png" alt=""><span>教堂</span>
+          <span>高尔夫球场</span>
         </button>
         <button class="environment" data-environment="2" type="button" aria-pressed="false">
-          <img src="assets/thumbs/env_qwantani.png" alt=""><span>月夜</span>
-        </button>
-        <button class="environment" data-environment="3" type="button" aria-pressed="false">
-          <img src="assets/thumbs/env_rogland.png" alt=""><span>晴夜</span>
+          <span>冯德尔公园</span>
         </button>
       </div>
-      <p class="note">4 张原工程 2K 线性 HDR 环境图。观察模式拖动可绕 Y 轴旋转相机。</p>
+      <p class="note">最新版原工程的 3 张 4K 线性 HDR。静态编辑可点击空白处生成泡泡，编辑模式可拖拽泡泡。</p>
     </section>
 
     <section class="panel" data-panel="furnace" hidden>
       <div class="row">
         <label for="white-furnace">白炉测试</label>
         <input id="white-furnace" data-param="whiteFurnace" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="bubble-only">白底只显示泡泡</label>
+        <input id="bubble-only" data-param="bubbleOnlyOutput" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="dof-enabled">启用景深</label>
+        <input id="dof-enabled" data-param="depthOfFieldEnabled" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="dof-mode">景深模式</label>
+        <span class="slider-wrap"><input id="dof-mode" data-param="depthOfFieldMode" type="range" min="1" max="2" step="1" value="2" data-precision="0"><output data-output="depthOfFieldMode">2</output></span>
+      </div>
+      <div class="row">
+        <label for="dof-focus">焦点距离</label>
+        <span class="slider-wrap"><input id="dof-focus" data-param="depthOfFieldFocusDistance" type="range" min="20" max="120" step=".5" value="54" data-suffix=" m"><output data-output="depthOfFieldFocusDistance">54.0 m</output></span>
+      </div>
+      <div class="row">
+        <label for="dof-background">背景距离</label>
+        <span class="slider-wrap"><input id="dof-background" data-param="depthOfFieldBackgroundDistance" type="range" min="20" max="240" step="1" value="120" data-precision="0" data-suffix=" m"><output data-output="depthOfFieldBackgroundDistance">120 m</output></span>
+      </div>
+      <div class="row">
+        <label for="dof-strength">景深强度</label>
+        <span class="slider-wrap"><input id="dof-strength" data-param="depthOfFieldStrength" type="range" min="0" max="1" step=".01" value=".45"><output data-output="depthOfFieldStrength">0.45</output></span>
       </div>
       <div class="switch-pair">
         <span>背面</span><label for="back-t">透射</label>
@@ -376,6 +422,10 @@
         <label for="kappa3">κ₃ 消光系数</label>
         <span class="slider-wrap"><input id="kappa3" data-param="kappa3" type="range" min="0" max="5" step=".01" value="0"><output data-output="kappa3">0.00</output></span>
       </div>
+      <div class="row">
+        <label for="plateau-strength">Plateau 边界</label>
+        <span class="slider-wrap"><input id="plateau-strength" data-param="plateauBorderStrength" type="range" min="0" max="3" step=".01" value="1"><output data-output="plateauBorderStrength">1.00</output></span>
+      </div>
       <p class="note">参数变化时按 Belcour 三阶 Airy/XYZ 公式重建 256² RGBA16F 查找表。</p>
     </section>
 
@@ -390,7 +440,7 @@
       </div>
       <div class="row">
         <label for="flow-speed">流动速度</label>
-        <span class="slider-wrap"><input id="flow-speed" data-param="flowSpeed" type="range" min="0" max=".5" step=".01" value=".5"><output data-output="flowSpeed">0.50</output></span>
+        <span class="slider-wrap"><input id="flow-speed" data-param="flowSpeed" type="range" min="0" max=".5" step=".01" value=".03"><output data-output="flowSpeed">0.03</output></span>
       </div>
       <div class="row">
         <label for="flow-amplitude">膜厚振幅</label>
@@ -410,7 +460,31 @@
       </div>
       <div class="row">
         <label for="randomize">随机泡泡属性</label>
-        <input id="randomize" data-param="randomize" type="checkbox" checked>
+        <input id="randomize" data-param="randomize" type="checkbox">
+      </div>
+      <div class="row">
+        <label for="random-min">随机数量下限</label>
+        <span class="slider-wrap"><input id="random-min" data-param="randomBubbleMinCount" type="range" min="1" max="16" step="1" value="3" data-precision="0"><output data-output="randomBubbleMinCount">3</output></span>
+      </div>
+      <div class="row">
+        <label for="random-max">随机数量上限</label>
+        <span class="slider-wrap"><input id="random-max" data-param="randomBubbleMaxCount" type="range" min="1" max="16" step="1" value="9" data-precision="0"><output data-output="randomBubbleMaxCount">9</output></span>
+      </div>
+      <div class="row">
+        <label for="depth-scatter">深度分散</label>
+        <span class="slider-wrap"><input id="depth-scatter" data-param="randomBubbleDepthScatterScale" type="range" min="1" max="4" step=".05" value="2"><output data-output="randomBubbleDepthScatterScale">2.00</output></span>
+      </div>
+      <div class="row">
+        <label for="gravity-scale">重力缩放</label>
+        <span class="slider-wrap"><input id="gravity-scale" data-param="gravityScale" type="range" min="0" max="1.5" step=".01" value=".64"><output data-output="gravityScale">0.64</output></span>
+      </div>
+      <div class="row">
+        <label for="airflow-enabled">环境气流</label>
+        <input id="airflow-enabled" data-param="ambientAirflow" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="airflow-speed">竖直气流</label>
+        <span class="slider-wrap"><input id="airflow-speed" data-param="verticalAirflowSpeed" type="range" min="0" max="2" step=".01" value=".21" data-suffix=" m/s"><output data-output="verticalAirflowSpeed">0.21 m/s</output></span>
       </div>
       <div class="row">
         <label for="adhesion">碰撞连接</label>
@@ -449,6 +523,23 @@
         <input id="single-preview" data-param="singlePreview" type="checkbox" checked>
       </div>
       <p class="note">互动模式：拖拽泡泡、空白滑动施加气流/切断连接、双击泡泡使其爆裂。</p>
+      <div class="edit-actions">
+        <button class="action" id="duplicate-selected" type="button">复制</button>
+        <button class="action" id="shrink-selected" type="button">缩小</button>
+        <button class="action" id="grow-selected" type="button">放大</button>
+        <button class="action" id="delete-selected" type="button">删除</button>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="camera" hidden>
+      <div class="row"><label for="camera-distance">相机距离</label><span class="slider-wrap"><input id="camera-distance" data-param="cameraDistance" type="range" min="20" max="120" step=".5" value="54" data-suffix=" m"><output data-output="cameraDistance">54.0 m</output></span></div>
+      <div class="row"><label for="camera-fov">视场角</label><span class="slider-wrap"><input id="camera-fov" data-param="cameraFov" type="range" min="25" max="90" step="1" value="60" data-precision="0" data-suffix="°"><output data-output="cameraFov">60°</output></span></div>
+      <div class="row"><label for="resolution-scale">渲染分辨率</label><span class="slider-wrap"><input id="resolution-scale" data-param="renderResolutionScale" type="range" min=".5" max="1" step=".05" value="1"><output data-output="renderResolutionScale">1.00</output></span></div>
+      <div class="row"><label for="blend-width">法线融合宽度</label><span class="slider-wrap"><input id="blend-width" data-param="normalBlendWidthScale" type="range" min="0" max=".15" step=".005" value=".055" data-precision="3"><output data-output="normalBlendWidthScale">0.055</output></span></div>
+      <div class="row"><label for="bubble-blend">泡泡法线融合</label><span class="slider-wrap"><input id="bubble-blend" data-param="bubbleNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".35"><output data-output="bubbleNormalBlendStrength">0.35</output></span></div>
+      <div class="row"><label for="film-blend">共享膜法线融合</label><span class="slider-wrap"><input id="film-blend" data-param="sharedFilmNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".55"><output data-output="sharedFilmNormalBlendStrength">0.55</output></span></div>
+      <div class="row"><label for="border-blend">边界法线融合</label><span class="slider-wrap"><input id="border-blend" data-param="plateauBorderNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".28"><output data-output="plateauBorderNormalBlendStrength">0.28</output></span></div>
+      <p class="note">对应最新版渲染分辨率、相机和连接区域法线连续性调节。</p>
     </section>
   </aside>
 

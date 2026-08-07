@@ -6,10 +6,9 @@ import {
 } from "./optics.js";
 
 const ENVIRONMENTS = [
-  "assets/envmap/christmas_photo_studio_04_2k.hdr",
-  "assets/envmap/graaff_reinet_groote_kerk_2k.hdr",
-  "assets/envmap/qwantani_moon_noon_puresky_2k.hdr",
-  "assets/envmap/rogland_clear_night_2k.hdr"
+  "assets/envmap/lauter_waterfall_4k.hdr",
+  "assets/envmap/skukuza_golf_4k.hdr",
+  "assets/envmap/sunny_vondelpark_4k.hdr"
 ];
 
 const fullScreenVertex = `#version 300 es
@@ -118,6 +117,9 @@ uniform bool uFrontReflection;
 uniform int uClipPlaneCount;
 uniform vec4 uClipPlanes[6];
 uniform int uBlendChannel;
+uniform float uNormalBlendWidth;
+uniform float uNormalBlendStrength;
+uniform bool uSelected;
 in vec3 vWorldPosition;
 in vec3 vWorldNormal;
 out vec4 fragColor;
@@ -130,10 +132,28 @@ bool clipped(vec3 position) {
   return false;
 }
 
+vec3 resolveSurfaceNormal(vec3 position, vec3 normal) {
+  vec3 target = normal;
+  float totalWeight = 1.0;
+  float edgeWeight = 0.0;
+  for (int i = 0; i < 6; ++i) {
+    if (i >= uClipPlaneCount) break;
+    vec4 plane = uClipPlanes[i];
+    float weight = 1.0 - smoothstep(0.0, max(uNormalBlendWidth, 0.0001),
+      max(-dot(vec4(position, 1.0), plane), 0.0));
+    vec3 planeNormal = normalize(plane.xyz);
+    if (dot(planeNormal, normal) < 0.0) planeNormal = -planeNormal;
+    target += planeNormal * weight;
+    totalWeight += weight;
+    edgeWeight = max(edgeWeight, weight);
+  }
+  return normalize(mix(normal, normalize(target / totalWeight), edgeWeight * uNormalBlendStrength));
+}
+
 void main() {
   if (clipped(vWorldPosition)) discard;
   vec3 eye = normalize(vWorldPosition - uCameraPosition);
-  vec3 frontOutward = normalize(vWorldNormal);
+  vec3 frontOutward = resolveSurfaceNormal(vWorldPosition, normalize(vWorldNormal));
   if (dot(frontOutward, -eye) <= 0.0) discard;
   vec3 frontF = evaluateThinFilm(eye, frontOutward, frontOutward);
 
@@ -166,6 +186,10 @@ void main() {
     vec3 reflectedFront = sampleEnvironment(reflect(eye, frontOutward));
     emitted += reflectedFront * frontF;
   }
+  if (uSelected) {
+    float outline = pow(1.0 - clamp(dot(-eye, frontOutward), 0.0, 1.0), 8.0);
+    emitted += vec3(0.18, 0.58, 1.0) * outline * 1.8;
+  }
   int channel = clamp(uBlendChannel, 0, 2);
   fragColor = vec4(emitted, 1.0 - totalT[channel]);
 }`;
@@ -176,6 +200,7 @@ in vec2 vUv;
 out vec4 fragColor;
 uniform sampler2D uEnvironment;
 uniform bool uWhiteFurnace;
+uniform bool uBubbleOnly;
 uniform vec3 uCameraForward;
 uniform vec3 uCameraRight;
 uniform vec3 uCameraUp;
@@ -196,8 +221,9 @@ void main() {
     uCameraRight * (p.x * uTanHalfFov * uAspect) +
     uCameraUp * (p.y * uTanHalfFov)
   );
-  vec3 color = uWhiteFurnace ? vec3(0.5) : texture(uEnvironment, directionToUv(ray)).rgb;
-  fragColor = vec4(color, 1.0);
+  vec3 color = uBubbleOnly ? vec3(1.0) :
+    (uWhiteFurnace ? vec3(0.5) : texture(uEnvironment, directionToUv(ray)).rgb);
+  fragColor = vec4(color, 0.0);
 }`;
 
 const connectionVertex = `#version 300 es
@@ -213,6 +239,8 @@ uniform float uRadius;
 uniform float uSagittaRatio;
 uniform float uBorderRatio;
 uniform bool uPlateauMode;
+uniform float uNormalBlendStrength;
+uniform float uPlateauBorderStrength;
 out vec3 vWorldPosition;
 out vec3 vWorldNormal;
 
@@ -268,6 +296,11 @@ precision highp float;
 ${opticalFunctions}
 uniform vec3 uCameraPosition;
 uniform bool uPlateauMode;
+uniform vec3 uCenter;
+uniform vec3 uAxis;
+uniform float uRadius;
+uniform float uNormalBlendStrength;
+uniform float uPlateauBorderStrength;
 in vec3 vWorldPosition;
 in vec3 vWorldNormal;
 layout(location=0) out vec4 outOpticalDepth;
@@ -275,6 +308,9 @@ layout(location=1) out vec4 outWeightedReflection;
 void main() {
   vec3 eye = normalize(vWorldPosition - uCameraPosition);
   vec3 normal = normalize(vWorldNormal);
+  float edge = uPlateauMode ? 1.0 : smoothstep(0.68, 1.0, length(vWorldPosition - uCenter) / max(uRadius, 0.0001));
+  vec3 seamNormal = normalize(mix(normal, uPlateauMode ? normal : uAxis, edge * uNormalBlendStrength));
+  normal = seamNormal;
   if (dot(normal, -eye) < 0.0) normal = -normal;
   vec3 reflectance;
   if (uPlateauMode) {
@@ -282,7 +318,7 @@ void main() {
     float f0Amplitude = (1.0 - uEta2) / (1.0 + uEta2);
     float f0 = f0Amplitude * f0Amplitude;
     float interfaceF = f0 + (1.0 - f0) * pow(1.0 - cosine, 5.0);
-    reflectance = vec3(2.0 * interfaceF / (1.0 + interfaceF));
+    reflectance = vec3(2.0 * interfaceF / (1.0 + interfaceF)) * uPlateauBorderStrength;
   } else {
     reflectance = evaluateThinFilm(eye, normal, normal);
   }
@@ -305,6 +341,12 @@ uniform bool uConnectionTransmission;
 uniform bool uConnectionReflection;
 uniform vec4 uTouchIndicator;
 uniform vec2 uResolution;
+uniform bool uBubbleOnly;
+uniform bool uDepthOfFieldEnabled;
+uniform int uDepthOfFieldMode;
+uniform float uDepthOfFieldFocusDistance;
+uniform float uDepthOfFieldBackgroundDistance;
+uniform float uDepthOfFieldStrength;
 vec3 acesToneMap(vec3 color) {
   const float a = 2.51;
   const float b = 0.03;
@@ -314,7 +356,8 @@ vec3 acesToneMap(vec3 color) {
   return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
 }
 void main() {
-  vec3 scene = texture(uScene, vUv).rgb;
+  vec4 sceneSample = texture(uScene, vUv);
+  vec3 scene = sceneSample.rgb;
   vec3 tau = texture(uOpticalDepth, vUv).rgb;
   vec3 weighted = texture(uWeightedReflection, vUv).rgb;
   vec3 transmission = exp(-tau);
@@ -326,8 +369,28 @@ void main() {
   if (uConnectionTransmission) color *= transmission;
   else color *= vec3(0.0);
   if (uConnectionReflection) color += averageEnvironment * (vec3(1.0) - transmission);
+  if (uDepthOfFieldEnabled && uDepthOfFieldStrength > 0.001) {
+    float bubbleMask = clamp(sceneSample.a + dot(vec3(0.3333), 1.0 - transmission), 0.0, 1.0);
+    float bubbleDefocus = abs(54.0 - uDepthOfFieldFocusDistance) / max(uDepthOfFieldFocusDistance, 1.0);
+    float backgroundDefocus = abs(uDepthOfFieldBackgroundDistance - uDepthOfFieldFocusDistance) /
+      max(uDepthOfFieldFocusDistance, 1.0);
+    float radius = clamp(mix(backgroundDefocus, bubbleDefocus, bubbleMask) *
+      18.0 * uDepthOfFieldStrength, 0.0, 10.0);
+    vec3 blur = vec3(0.0);
+    float samples = uDepthOfFieldMode == 1 ? 8.0 : 16.0;
+    for (int i = 0; i < 16; ++i) {
+      if (float(i) >= samples) break;
+      float angle = float(i) * 2.39996323;
+      float ring = sqrt((float(i) + 0.5) / samples);
+      vec2 offset = vec2(cos(angle), sin(angle)) * ring * radius / uResolution;
+      blur += texture(uScene, clamp(vUv + offset, vec2(0.0), vec2(1.0))).rgb;
+    }
+    blur /= samples;
+    color = mix(color, blur, smoothstep(0.5, 2.0, radius) * 0.82);
+  }
   if (!uWhiteFurnace) color = acesToneMap(color);
   color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
+  if (uBubbleOnly && sceneSample.a < 0.001 && dot(tau, tau) < 0.000001) color = vec3(1.0);
   if (uTouchIndicator.w > 0.5) {
     vec2 pixel = vUv * uResolution;
     float distanceToTouch = length(pixel - uTouchIndicator.xy);
@@ -558,13 +621,14 @@ export class BubbleRenderer {
           "uWhiteFurnace", "uFlowEnabled", "uFlowNoiseScale", "uFlowSpeed",
           "uFlowAmplitude", "uTime", "uFilmThickness", "uEta2",
           "uBackTransmission", "uBackReflection", "uFrontTransmission",
-          "uFrontReflection", "uClipPlaneCount", "uClipPlanes[0]", "uBlendChannel"
+          "uFrontReflection", "uClipPlaneCount", "uClipPlanes[0]", "uBlendChannel",
+          "uNormalBlendWidth", "uNormalBlendStrength", "uSelected"
         ])
       },
       background: {
         program: background,
         uniforms: uniformLocations(gl, background, [
-          "uEnvironment", "uWhiteFurnace", "uCameraForward", "uCameraRight",
+          "uEnvironment", "uWhiteFurnace", "uBubbleOnly", "uCameraForward", "uCameraRight",
           "uCameraUp", "uTanHalfFov", "uAspect"
         ])
       },
@@ -575,7 +639,8 @@ export class BubbleRenderer {
           "uRadius", "uSagittaRatio", "uBorderRatio", "uPlateauMode",
           "uCameraPosition", "uEnvironment", "uFlowNoise", "uThinFilmLut",
           "uWhiteFurnace", "uFlowEnabled", "uFlowNoiseScale", "uFlowSpeed",
-          "uFlowAmplitude", "uTime", "uFilmThickness", "uEta2"
+          "uFlowAmplitude", "uTime", "uFilmThickness", "uEta2",
+          "uNormalBlendStrength", "uPlateauBorderStrength"
         ])
       },
       final: {
@@ -583,7 +648,8 @@ export class BubbleRenderer {
         uniforms: uniformLocations(gl, final, [
           "uScene", "uOpticalDepth", "uWeightedReflection", "uWhiteFurnace",
           "uConnectionTransmission", "uConnectionReflection", "uTouchIndicator",
-          "uResolution"
+          "uResolution", "uBubbleOnly", "uDepthOfFieldEnabled", "uDepthOfFieldMode",
+          "uDepthOfFieldFocusDistance", "uDepthOfFieldBackgroundDistance", "uDepthOfFieldStrength"
         ])
       }
     };
@@ -591,7 +657,8 @@ export class BubbleRenderer {
 
   resize() {
     const gl = this.gl;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5) *
+      Math.max(.5, Math.min(1, this.simulation.params.renderResolutionScale));
     const cssWidth = Math.max(this.canvas.clientWidth, 1);
     const cssHeight = Math.max(this.canvas.clientHeight, 1);
     const pixelBudget = 2_600_000;
@@ -702,14 +769,14 @@ export class BubbleRenderer {
     setTexture(gl, uniforms.uThinFilmLut, 2, this.lutTexture);
   }
 
-  setOpticalUniforms(uniforms, filmThickness) {
+  setOpticalUniforms(uniforms, filmThickness, settings = null) {
     const gl = this.gl;
     const params = this.simulation.params;
     gl.uniform1i(uniforms.uWhiteFurnace, params.whiteFurnace);
-    gl.uniform1i(uniforms.uFlowEnabled, params.flowEnabled);
-    gl.uniform1f(uniforms.uFlowNoiseScale, params.flowNoiseScale);
-    gl.uniform1f(uniforms.uFlowSpeed, params.flowSpeed);
-    gl.uniform1f(uniforms.uFlowAmplitude, params.flowAmplitude);
+    gl.uniform1i(uniforms.uFlowEnabled, settings?.flowEnabled ?? params.flowEnabled);
+    gl.uniform1f(uniforms.uFlowNoiseScale, settings?.flowNoiseScale ?? params.flowNoiseScale);
+    gl.uniform1f(uniforms.uFlowSpeed, settings?.flowSpeed ?? params.flowSpeed);
+    gl.uniform1f(uniforms.uFlowAmplitude, settings?.flowAmplitude ?? params.flowAmplitude);
     gl.uniform1f(uniforms.uTime, this.simulation.elapsed);
     gl.uniform1f(uniforms.uFilmThickness, filmThickness);
     gl.uniform1f(uniforms.uEta2, params.eta2);
@@ -728,6 +795,7 @@ export class BubbleRenderer {
     gl.bindVertexArray(this.fullScreenVao);
     setTexture(gl, entry.uniforms.uEnvironment, 0, this.environmentTexture);
     gl.uniform1i(entry.uniforms.uWhiteFurnace, this.simulation.params.whiteFurnace);
+    gl.uniform1i(entry.uniforms.uBubbleOnly, this.simulation.params.bubbleOnlyOutput);
     gl.uniform3fv(entry.uniforms.uCameraForward, camera.forward);
     gl.uniform3fv(entry.uniforms.uCameraRight, camera.right);
     gl.uniform3fv(entry.uniforms.uCameraUp, camera.up);
@@ -759,7 +827,7 @@ export class BubbleRenderer {
     gl.uniform1i(entry.uniforms.uBackTransmission, params.backTransmission);
     gl.uniform1i(entry.uniforms.uBackReflection, params.backReflection);
     gl.uniform1i(entry.uniforms.uFrontTransmission, params.frontTransmission);
-    gl.uniform1i(entry.uniforms.uFrontReflection, params.frontReflection);
+      gl.uniform1i(entry.uniforms.uFrontReflection, params.frontReflection);
     bubbles.forEach((bubble) => {
       const scale = this.simulation.getWorldRadius(bubble);
       const shape = m3.scale(this.simulation.shapeMatrix(bubble), scale);
@@ -769,11 +837,21 @@ export class BubbleRenderer {
       gl.uniformMatrix3fv(entry.uniforms.uInverseShape, false, inverseShape);
       gl.uniformMatrix3fv(entry.uniforms.uNormalMatrix, false, normalMatrix);
       gl.uniform3fv(entry.uniforms.uCenter, bubble.position);
-      this.setOpticalUniforms(entry.uniforms, bubble.filmThickness);
+      this.setOpticalUniforms(entry.uniforms, bubble.filmThickness, bubble);
       const planes = new Float32Array(24);
       bubble.clipPlanes.slice(0, 6).forEach((plane, index) => planes.set(plane, index * 4));
       gl.uniform1i(entry.uniforms.uClipPlaneCount, Math.min(bubble.clipPlanes.length, 6));
       gl.uniform4fv(entry.uniforms["uClipPlanes[0]"], planes);
+      const blendWidth = Math.max(
+        Math.min(
+          scale * params.normalBlendWidthScale,
+          Math.max(params.normalBlendMinWidth, params.normalBlendMaxWidth)
+        ),
+        Math.min(params.normalBlendMinWidth, params.normalBlendMaxWidth)
+      );
+      gl.uniform1f(entry.uniforms.uNormalBlendWidth, blendWidth);
+      gl.uniform1f(entry.uniforms.uNormalBlendStrength, params.bubbleNormalBlendStrength);
+      gl.uniform1i(entry.uniforms.uSelected, bubble.id === this.simulation.interaction.selectedId);
       for (let channel = 0; channel < 3; channel += 1) {
         gl.colorMask(channel === 0, channel === 1, channel === 2, true);
         gl.uniform1i(entry.uniforms.uBlendChannel, channel);
@@ -804,7 +882,11 @@ export class BubbleRenderer {
     gl.uniform1f(entry.uniforms.uSagittaRatio, geometry.sagittaRatio);
     gl.uniform1f(entry.uniforms.uBorderRatio, geometry.borderRatio);
     gl.uniform1i(entry.uniforms.uPlateauMode, plateauMode);
-    this.setOpticalUniforms(entry.uniforms, geometry.filmThickness);
+    gl.uniform1f(entry.uniforms.uNormalBlendStrength, plateauMode
+      ? this.simulation.params.plateauBorderNormalBlendStrength
+      : this.simulation.params.sharedFilmNormalBlendStrength);
+    gl.uniform1f(entry.uniforms.uPlateauBorderStrength, this.simulation.params.plateauBorderStrength);
+    this.setOpticalUniforms(entry.uniforms, geometry.filmThickness, geometry);
     gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
   }
 
@@ -852,6 +934,12 @@ export class BubbleRenderer {
     gl.uniform1i(entry.uniforms.uConnectionReflection, this.simulation.params.frontReflection);
     gl.uniform4fv(entry.uniforms.uTouchIndicator, this.touch);
     gl.uniform2f(entry.uniforms.uResolution, this.width, this.height);
+    gl.uniform1i(entry.uniforms.uBubbleOnly, this.simulation.params.bubbleOnlyOutput);
+    gl.uniform1i(entry.uniforms.uDepthOfFieldEnabled, this.simulation.params.depthOfFieldEnabled);
+    gl.uniform1i(entry.uniforms.uDepthOfFieldMode, this.simulation.params.depthOfFieldMode);
+    gl.uniform1f(entry.uniforms.uDepthOfFieldFocusDistance, this.simulation.params.depthOfFieldFocusDistance);
+    gl.uniform1f(entry.uniforms.uDepthOfFieldBackgroundDistance, this.simulation.params.depthOfFieldBackgroundDistance);
+    gl.uniform1f(entry.uniforms.uDepthOfFieldStrength, this.simulation.params.depthOfFieldStrength);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 

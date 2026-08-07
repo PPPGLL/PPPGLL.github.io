@@ -12,6 +12,7 @@ const AIR_DENSITY = 1.225;
 const LIQUID_DENSITY = 1000;
 const GRAVITY = 9.81;
 const MAX_BUBBLES = 64;
+const MAX_EDITOR_BUBBLES = 128;
 const SHOWCASE_MAX_BUBBLES = 32;
 const COLLISION_ITERATIONS = 6;
 const MAX_SPEED = 10;
@@ -45,7 +46,7 @@ export class BubbleSimulation {
       kappa3: 0,
       flowEnabled: true,
       flowNoiseScale: 1,
-      flowSpeed: .5,
+      flowSpeed: .03,
       flowAmplitude: 150,
       deformationEnabled: true,
       radiusCentimeters: 3,
@@ -53,18 +54,43 @@ export class BubbleSimulation {
       dampingRatio: .08,
       motionSpeed: 1,
       dragCoefficient: .47,
-      randomize: true,
+      gravityScale: .64,
+      ambientAirflow: true,
+      verticalAirflowSpeed: .21,
+      randomize: false,
+      randomBubbleMinCount: 3,
+      randomBubbleMaxCount: 9,
+      randomBubbleDepthScatterScale: 2,
       adhesion: true,
       wetness: .65,
-      singlePreview: true,
-      interactionMode: false,
-      showcaseMode: false
+      singlePreview: false,
+      interactionMode: true,
+      showcaseMode: false,
+      workspaceMode: "static",
+      toolMode: "edit",
+      cameraDistance: 54,
+      cameraFov: 60,
+      renderResolutionScale: 1,
+      bubbleOnlyOutput: false,
+      plateauBorderStrength: 1,
+      normalBlendWidthScale: .055,
+      normalBlendMinWidth: .035,
+      normalBlendMaxWidth: .18,
+      bubbleNormalBlendStrength: .35,
+      sharedFilmNormalBlendStrength: .55,
+      plateauBorderNormalBlendStrength: .28,
+      depthOfFieldEnabled: false,
+      depthOfFieldMode: 2,
+      depthOfFieldFocusDistance: 54,
+      depthOfFieldBackgroundDistance: 120,
+      depthOfFieldStrength: .45
     };
     this.bubbles = [];
     this.bonds = [];
     this.nextBubbleId = 1;
     this.randomState = 0x6d2b79f5;
     this.cameraYaw = 0;
+    this.cameraPitch = 0;
     this.elapsed = 0;
     this.fps = 0;
     this.interaction = this.createInteractionState();
@@ -106,6 +132,10 @@ export class BubbleSimulation {
       filmThickness: this.params.filmThickness,
       surfaceTension: this.params.surfaceTensionMilliNewtons * .001,
       dampingRatio: this.params.dampingRatio,
+      flowEnabled: this.params.flowEnabled,
+      flowNoiseScale: this.params.flowNoiseScale,
+      flowSpeed: this.params.flowSpeed,
+      flowAmplitude: this.params.flowAmplitude,
       quadrupole: m3.zero(),
       quadrupoleVelocity: m3.zero(),
       activeBondCount: 0,
@@ -119,6 +149,9 @@ export class BubbleSimulation {
       bubble.filmThickness = 120 + 880 * this.nextRandom();
       bubble.surfaceTension = .018 + .014 * this.nextRandom();
       bubble.dampingRatio = .03 + .19 * this.nextRandom();
+      bubble.flowNoiseScale = .35 + 2.85 * this.nextRandom();
+      bubble.flowSpeed = .01 + .15 * this.nextRandom();
+      bubble.flowAmplitude = 60 + 420 * this.nextRandom();
     }
     return bubble;
   }
@@ -139,15 +172,44 @@ export class BubbleSimulation {
     if (name === "dampingRatio" && !this.params.randomize) {
       this.bubbles.forEach((bubble) => { bubble.dampingRatio = value; });
     }
+    if (name === "flowEnabled" && !this.params.randomize) {
+      this.bubbles.forEach((bubble) => { bubble.flowEnabled = value; });
+    }
+    if (name === "flowNoiseScale" && !this.params.randomize) {
+      this.bubbles.forEach((bubble) => { bubble.flowNoiseScale = value; });
+    }
+    if (name === "flowSpeed" && !this.params.randomize) {
+      this.bubbles.forEach((bubble) => { bubble.flowSpeed = value; });
+    }
+    if (name === "flowAmplitude" && !this.params.randomize) {
+      this.bubbles.forEach((bubble) => { bubble.flowAmplitude = value; });
+    }
     if (name === "motionSpeed") {
       this.previewBubble.velocity = [0, value, 0];
     }
     if (name === "adhesion" && !value) this.bonds.length = 0;
+    if (name === "adhesion" && this.params.workspaceMode === "static") this.rebuildEditorOverlapBonds();
   }
 
   setInteractionMode(enabled) {
     this.params.interactionMode = enabled;
     if (enabled) this.params.singlePreview = false;
+    this.interaction = this.createInteractionState();
+  }
+
+  setWorkspaceMode(mode) {
+    this.params.workspaceMode = mode === "realtime" ? "realtime" : "static";
+    this.params.interactionMode = true;
+    this.interaction = this.createInteractionState();
+    this.bubbles.forEach((bubble) => {
+      bubble.moving = this.params.workspaceMode === "realtime";
+      if (!bubble.moving) bubble.velocity = [0, 0, 0];
+    });
+    this.rebuildEditorOverlapBonds();
+  }
+
+  setToolMode(mode) {
+    this.params.toolMode = mode === "browse" ? "browse" : "edit";
     this.interaction = this.createInteractionState();
   }
 
@@ -165,8 +227,8 @@ export class BubbleSimulation {
   }
 
   getCamera(aspect) {
-    const distance = this.params.singlePreview ? 8 : 54;
-    return buildCamera(this.cameraYaw, distance, aspect);
+    const distance = this.params.singlePreview ? 8 : this.params.cameraDistance;
+    return buildCamera(this.cameraYaw, distance, aspect, this.params.cameraFov);
   }
 
   getWorldRadius(bubble) {
@@ -275,6 +337,143 @@ export class BubbleSimulation {
     this.bubbles.length = 0;
     this.bonds.length = 0;
     this.interaction = this.createInteractionState();
+  }
+
+  addBubblesAtRay(ray, camera, requestedCount = 0) {
+    if (this.params.workspaceMode !== "static" || this.params.toolMode !== "edit") return 0;
+    const center = intersectRayPlane(ray, [0, 0, 0], camera.forward);
+    if (!center) return 0;
+    const minimum = Math.round(clamp(this.params.randomBubbleMinCount, 1, 16));
+    const maximum = Math.round(clamp(this.params.randomBubbleMaxCount, minimum, 16));
+    const count = requestedCount > 0
+      ? Math.round(clamp(requestedCount, 1, 16))
+      : (this.params.randomize
+        ? minimum + Math.floor(this.nextRandom() * (maximum - minimum + 1))
+        : 1);
+    const created = [];
+    for (let index = 0; index < count && this.bubbles.length < MAX_EDITOR_BUBBLES; index += 1) {
+      const bubble = this.createBubble(this.params.randomize);
+      const radius = this.getWorldRadius(bubble);
+      if (index === 0) {
+        bubble.position = v3.clone(center);
+      } else {
+        const angle = index * 2.39996323 + this.nextRandom() * .45;
+        const ring = Math.sqrt(index) * radius * 1.45;
+        const depth = (this.nextRandom() * 2 - 1) * radius * this.params.randomBubbleDepthScatterScale;
+        bubble.position = v3.add(center, v3.add(
+          v3.scale(camera.right, Math.cos(angle) * ring),
+          v3.add(v3.scale(camera.up, Math.sin(angle) * ring), v3.scale(camera.forward, depth))
+        ));
+      }
+      bubble.velocity = [0, 0, 0];
+      bubble.moving = false;
+      this.bubbles.push(bubble);
+      created.push(bubble);
+    }
+    this.interaction.selectedId = created.at(-1)?.id ?? 0;
+    this.rebuildEditorOverlapBonds();
+    return created.length;
+  }
+
+  deleteSelected() {
+    const id = this.interaction.selectedId;
+    if (!id) return false;
+    this.bubbles = this.bubbles.filter((bubble) => bubble.id !== id);
+    this.bonds = this.bonds.filter((bond) => bond.firstId !== id && bond.secondId !== id);
+    this.interaction.selectedId = 0;
+    this.rebuildConnectionGeometry();
+    return true;
+  }
+
+  duplicateSelected() {
+    const source = this.findBubble(this.interaction.selectedId);
+    if (!source || this.bubbles.length >= MAX_EDITOR_BUBBLES) return false;
+    const copy = {
+      ...source,
+      id: this.nextBubbleId++,
+      position: v3.add(source.position, [this.getWorldRadius(source) * .7, this.getWorldRadius(source) * .7, 0]),
+      velocity: [0, 0, 0],
+      quadrupole: [...source.quadrupole],
+      quadrupoleVelocity: m3.zero(),
+      clipPlanes: []
+    };
+    this.bubbles.push(copy);
+    this.interaction.selectedId = copy.id;
+    this.rebuildEditorOverlapBonds();
+    return true;
+  }
+
+  scaleSelected(factor) {
+    const bubble = this.findBubble(this.interaction.selectedId);
+    if (!bubble) return false;
+    bubble.physicalRadius = clamp(bubble.physicalRadius * factor, .01, .08);
+    this.rebuildEditorOverlapBonds();
+    return true;
+  }
+
+  exportScene() {
+    return {
+      version: 5,
+      params: { ...this.params, showcaseMode: false },
+      cameraYaw: this.cameraYaw,
+      bubbles: this.bubbles.map((bubble) => ({
+        ...bubble,
+        position: [...bubble.position],
+        velocity: [...bubble.velocity],
+        quadrupole: [...bubble.quadrupole],
+        quadrupoleVelocity: [...bubble.quadrupoleVelocity],
+        clipPlanes: []
+      })),
+      bonds: this.bonds.map((bond) => ({ ...bond }))
+    };
+  }
+
+  importScene(snapshot) {
+    if (!snapshot || !Array.isArray(snapshot.bubbles) || !Array.isArray(snapshot.bonds)) return false;
+    Object.assign(this.params, snapshot.params || {});
+    this.cameraYaw = Number(snapshot.cameraYaw) || 0;
+    this.bubbles = snapshot.bubbles.slice(0, MAX_EDITOR_BUBBLES).map((bubble) => ({
+      ...bubble,
+      position: [...bubble.position],
+      velocity: [...bubble.velocity],
+      quadrupole: [...bubble.quadrupole],
+      quadrupoleVelocity: [...bubble.quadrupoleVelocity],
+      clipPlanes: []
+    }));
+    const validIds = new Set(this.bubbles.map((bubble) => bubble.id));
+    this.bonds = snapshot.bonds.filter((bond) => validIds.has(bond.firstId) && validIds.has(bond.secondId));
+    this.nextBubbleId = Math.max(0, ...validIds) + 1;
+    this.interaction = this.createInteractionState();
+    this.rebuildConnectionGeometry();
+    return true;
+  }
+
+  rebuildEditorOverlapBonds() {
+    if (this.params.workspaceMode !== "static") return;
+    this.bonds.length = 0;
+    if (!this.params.adhesion) {
+      this.rebuildConnectionGeometry();
+      return;
+    }
+    for (let firstIndex = 0; firstIndex < this.bubbles.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < this.bubbles.length; secondIndex += 1) {
+        const first = this.bubbles[firstIndex];
+        const second = this.bubbles[secondIndex];
+        const distance = v3.distance(first.position, second.position);
+        if (distance > 1.08 * (this.getWorldRadius(first) + this.getWorldRadius(second))) continue;
+        this.createBond(first, second, true);
+        const bond = this.findBond(first.id, second.id);
+        if (bond) {
+          bond.editorGenerated = true;
+          bond.restDistance = clamp(
+            distance,
+            Math.abs(this.getWorldRadius(first) - this.getWorldRadius(second)) + 1e-4,
+            this.getWorldRadius(first) + this.getWorldRadius(second) - 1e-4
+          );
+        }
+      }
+    }
+    this.rebuildConnectionGeometry();
   }
 
   findBubble(id) {
@@ -509,12 +708,18 @@ export class BubbleSimulation {
       return;
     }
 
+    if (this.params.workspaceMode === "static") {
+      this.rebuildConnectionGeometry();
+      return;
+    }
+
     this.bonds = this.bonds.filter((bond) => {
       const first = this.findBubble(bond.firstId);
       const second = this.findBubble(bond.secondId);
       if (!first || !second) return false;
       bond.age += dt;
       bond.constraintLambda = 0;
+      if (bond.editorGenerated || this.params.toolMode === "edit") return true;
       if (bond.age <= .08) return true;
       const distance = v3.distance(first.position, second.position);
       const minimumRadius = Math.min(this.getWorldRadius(first), this.getWorldRadius(second));
@@ -525,14 +730,23 @@ export class BubbleSimulation {
     this.applyDrag(dt);
     this.bubbles.forEach((bubble) => {
       const radius = bubble.physicalRadius;
-      const mass = this.calculateMass(bubble);
-      const speed = v3.length(bubble.velocity);
-      const crossSection = PI * radius * radius;
-      const quadraticDrag = AIR_DENSITY * this.params.dragCoefficient * crossSection / (2 * mass);
-      bubble.velocity = v3.scale(bubble.velocity, 1 / (1 + quadraticDrag * speed * dt));
-      const volume = 4 * PI * radius ** 3 / 3;
-      const verticalAcceleration = (AIR_DENSITY * volume * GRAVITY - mass * GRAVITY) / mass;
-      bubble.velocity[1] += verticalAcceleration * dt;
+      const realtimeEditing = this.params.toolMode === "edit";
+      const ambientVelocity = this.params.ambientAirflow && !realtimeEditing
+        ? [0, this.params.verticalAirflowSpeed, 0]
+        : [0, 0, 0];
+      const relativeVelocity = v3.sub(bubble.velocity, ambientVelocity);
+      if (!realtimeEditing) {
+        const mass = this.calculateMass(bubble);
+        const speed = v3.length(relativeVelocity);
+        const crossSection = PI * radius * radius;
+        const quadraticDrag = AIR_DENSITY * this.params.dragCoefficient * crossSection / (2 * mass);
+        const dampedRelativeVelocity = v3.scale(relativeVelocity, 1 / (1 + quadraticDrag * speed * dt));
+        bubble.velocity = v3.add(ambientVelocity, dampedRelativeVelocity);
+        const volume = 4 * PI * radius ** 3 / 3;
+        const effectiveGravity = GRAVITY * this.params.gravityScale;
+        const verticalAcceleration = (AIR_DENSITY * volume * effectiveGravity - mass * effectiveGravity) / mass;
+        bubble.velocity[1] += verticalAcceleration * dt;
+      }
       bubble.position = v3.madd(bubble.position, bubble.velocity, WORLD_UNITS_PER_METER * dt);
       const targetScale = this.countBonds(bubble.id) > 0 ? .35 : 1;
       const target = m3.scale(this.calculateAerodynamicQuadrupole(
@@ -655,7 +869,11 @@ export class BubbleSimulation {
       circleRadius,
       borderRatio,
       sagittaRatio,
-      filmThickness: clamp(.75 * averageThickness, 80, 1000)
+      filmThickness: clamp(.75 * averageThickness, 80, 1000),
+      flowEnabled: first.flowEnabled || second.flowEnabled,
+      flowNoiseScale: .5 * (first.flowNoiseScale + second.flowNoiseScale),
+      flowSpeed: .5 * (first.flowSpeed + second.flowSpeed),
+      flowAmplitude: .5 * (first.flowAmplitude + second.flowAmplitude)
     };
     if (updateClipPlanes) {
       const outerRadius = Math.min(circleRadius + .5 * borderSize, .999 * Math.min(r1, r2));
@@ -730,6 +948,7 @@ export class BubbleSimulation {
     }
     const bubble = hit.bubble;
     if (
+      this.params.workspaceMode === "realtime" &&
       this.interaction.lastClickId === bubble.id &&
       timestamp - this.interaction.lastClickTime <= .35
     ) {
@@ -772,6 +991,14 @@ export class BubbleSimulation {
         );
         this.interaction.previousTarget = v3.clone(target);
         this.interaction.targetPosition = target;
+        if (this.params.workspaceMode === "static") {
+          const bubble = this.findBubble(this.interaction.selectedId);
+          if (bubble) {
+            bubble.position = v3.clone(target);
+            bubble.velocity = [0, 0, 0];
+            this.rebuildEditorOverlapBonds();
+          }
+        }
       }
     } else {
       this.applyAirflowAndCut(previousScreen, screen, eventDelta, camera, viewport);
@@ -788,7 +1015,7 @@ export class BubbleSimulation {
         v3.scale(this.interaction.targetVelocity, .35)
       ), MAX_SPEED);
     }
-    this.interaction.selectedId = 0;
+    if (this.params.workspaceMode !== "static") this.interaction.selectedId = 0;
     this.interaction.previousScreen = null;
     this.interaction.bondCandidateId = 0;
     this.interaction.bondCandidateTime = 0;

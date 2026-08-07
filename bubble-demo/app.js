@@ -90,25 +90,37 @@ document.querySelectorAll("[data-tab]").forEach((button) => {
   });
 });
 
-const observeButton = document.querySelector("#mode-observe");
-const interactButton = document.querySelector("#mode-interact");
+const staticButton = document.querySelector("#workspace-static");
+const realtimeButton = document.querySelector("#workspace-realtime");
+const browseButton = document.querySelector("#tool-browse");
+const editButton = document.querySelector("#tool-edit");
 
 function updateModeButtons() {
-  observeButton.classList.toggle("active", !simulation.params.interactionMode);
-  interactButton.classList.toggle("active", simulation.params.interactionMode);
-  observeButton.setAttribute("aria-pressed", String(!simulation.params.interactionMode));
-  interactButton.setAttribute("aria-pressed", String(simulation.params.interactionMode));
+  staticButton.classList.toggle("active", simulation.params.workspaceMode === "static");
+  realtimeButton.classList.toggle("active", simulation.params.workspaceMode === "realtime");
+  browseButton.classList.toggle("active", simulation.params.toolMode === "browse");
+  editButton.classList.toggle("active", simulation.params.toolMode === "edit");
   const previewInput = document.querySelector('[data-param="singlePreview"]');
   previewInput.checked = simulation.params.singlePreview;
 }
 
-observeButton.addEventListener("click", () => {
-  simulation.setInteractionMode(false);
+staticButton.addEventListener("click", () => {
+  simulation.setWorkspaceMode("static");
   updateModeButtons();
 });
 
-interactButton.addEventListener("click", () => {
-  simulation.setInteractionMode(true);
+realtimeButton.addEventListener("click", () => {
+  simulation.setWorkspaceMode("realtime");
+  updateModeButtons();
+});
+
+browseButton.addEventListener("click", () => {
+  simulation.setToolMode("browse");
+  updateModeButtons();
+});
+
+editButton.addEventListener("click", () => {
+  simulation.setToolMode("edit");
   updateModeButtons();
 });
 
@@ -142,6 +154,9 @@ document.querySelector("#showcase").addEventListener("change", (event) => {
   simulation.setShowcaseMode(event.target.checked);
   stopShowcaseTimers();
   if (!event.target.checked) return;
+  simulation.setWorkspaceMode("realtime");
+  simulation.setToolMode("browse");
+  updateModeButtons();
   simulation.params.singlePreview = false;
   document.querySelector('[data-param="singlePreview"]').checked = false;
   simulation.launchBubble();
@@ -171,6 +186,11 @@ function stopLaunching() {
 
 launchButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
+  if (simulation.params.workspaceMode !== "realtime") {
+    simulation.setWorkspaceMode("realtime");
+    simulation.setToolMode("edit");
+    updateModeButtons();
+  }
   launchHeld = true;
   window.getSelection()?.removeAllRanges();
   simulation.launchBubble();
@@ -184,6 +204,54 @@ launchButton.addEventListener("lostpointercapture", stopLaunching);
 window.addEventListener("blur", stopLaunching);
 
 document.querySelector("#clear").addEventListener("click", () => simulation.clear());
+document.querySelector("#clear-top").addEventListener("click", () => simulation.clear());
+
+function centerRay() {
+  const rect = canvas.getBoundingClientRect();
+  return rayFromScreen(camera, rect.width * .5, rect.height * .5, rect.width, rect.height);
+}
+
+document.querySelector("#add-bubbles").addEventListener("click", () => {
+  if (simulation.params.workspaceMode !== "static") {
+    simulation.setWorkspaceMode("static");
+    simulation.setToolMode("edit");
+    updateModeButtons();
+  }
+  simulation.addBubblesAtRay(centerRay(), camera, 0);
+});
+document.querySelector("#duplicate-selected").addEventListener("click", () => simulation.duplicateSelected());
+document.querySelector("#shrink-selected").addEventListener("click", () => simulation.scaleSelected(.9));
+document.querySelector("#grow-selected").addEventListener("click", () => simulation.scaleSelected(1.1));
+document.querySelector("#delete-selected").addEventListener("click", () => simulation.deleteSelected());
+
+const snapshotKey = "bubble-demo-scene-v5";
+document.querySelector("#snapshot-save").addEventListener("click", () => {
+  localStorage.setItem(snapshotKey, JSON.stringify(simulation.exportScene()));
+  loadingLabel.hidden = false;
+  loadingLabel.textContent = "场景已保存到当前浏览器";
+  window.setTimeout(() => { loadingLabel.hidden = true; }, 1400);
+});
+document.querySelector("#snapshot-load").addEventListener("click", () => {
+  try {
+    const snapshot = JSON.parse(localStorage.getItem(snapshotKey) || "null");
+    if (!simulation.importScene(snapshot)) throw new Error("empty");
+    parameterInputs.forEach((input) => {
+      const value = simulation.params[input.dataset.param];
+      if (value === undefined) return;
+      if (input.type === "checkbox") input.checked = Boolean(value);
+      else input.value = String(value);
+      updateOutput(input);
+    });
+    updateModeButtons();
+    loadingLabel.hidden = false;
+    loadingLabel.textContent = "场景读取完成";
+    window.setTimeout(() => { loadingLabel.hidden = true; }, 1200);
+  } catch {
+    loadingLabel.hidden = false;
+    loadingLabel.textContent = "还没有已保存的场景";
+    window.setTimeout(() => { loadingLabel.hidden = true; }, 1500);
+  }
+});
 
 let pointerActive = false;
 let pointerId = -1;
@@ -207,14 +275,18 @@ canvas.addEventListener("pointerdown", (event) => {
   previousPointerX = point.x;
   canvas.setPointerCapture(event.pointerId);
   renderer.setTouch(point.x, point.y, true);
-  if (simulation.params.interactionMode) {
+  if (simulation.params.toolMode === "edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
-    simulation.pointerDown(
+    const hit = simulation.pointerDown(
       ray,
       [point.x, point.y],
       event.timeStamp / 1000,
       camera
     );
+    if (!hit && simulation.params.workspaceMode === "static") {
+      simulation.addBubblesAtRay(ray, camera, 0);
+      simulation.interaction.previousScreen = null;
+    }
   }
 });
 
@@ -222,7 +294,7 @@ canvas.addEventListener("pointermove", (event) => {
   const point = localPointer(event);
   if (!pointerActive || event.pointerId !== pointerId) return;
   renderer.setTouch(point.x, point.y, true);
-  if (simulation.params.interactionMode) {
+  if (simulation.params.toolMode === "edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
     simulation.pointerMove(
       ray,
@@ -236,6 +308,15 @@ canvas.addEventListener("pointermove", (event) => {
     previousPointerX = point.x;
   }
 });
+
+canvas.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  simulation.params.cameraDistance = Math.max(20, Math.min(120,
+    simulation.params.cameraDistance * Math.exp(event.deltaY * .001)));
+  const input = document.querySelector('[data-param="cameraDistance"]');
+  input.value = String(simulation.params.cameraDistance);
+  updateOutput(input);
+}, { passive: false });
 
 function endPointer(event) {
   if (!pointerActive || event.pointerId !== pointerId) return;
@@ -268,7 +349,7 @@ function frame(now) {
     fpsLabel.textContent = `${simulation.fps.toFixed(1)} FPS`;
     countLabel.textContent = simulation.params.singlePreview
       ? "单泡泡预览"
-      : `${simulation.bubbles.length} 泡泡 · ${simulation.bonds.length} 连接`;
+      : `${simulation.params.workspaceMode === "static" ? "静态" : "动态"} · ${simulation.bubbles.length} 泡泡 · ${simulation.bonds.length} 连接`;
     fpsAccumulator = 0;
     fpsFrameCount = 0;
     fpsUpdateTime = now;
