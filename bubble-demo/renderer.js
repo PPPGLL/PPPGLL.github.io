@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js";
+import { v3, m3 } from "./math.js?v=20260807-2";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js";
+} from "./optics.js?v=20260807-2";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -64,7 +64,7 @@ vec2 directionToEquirectUv(vec3 direction) {
 
 vec3 sampleEnvironment(vec3 direction) {
   if (uWhiteFurnace) return vec3(0.5);
-  return texture(uEnvironment, directionToEquirectUv(direction)).rgb;
+  return min(texture(uEnvironment, directionToEquirectUv(direction)).rgb, vec3(60000.0));
 }
 
 float safeProjectionDenominator(float value) {
@@ -220,7 +220,7 @@ void main() {
     uCameraUp * (p.y * uTanHalfFov)
   );
   vec3 color = uBubbleOnly ? vec3(1.0) :
-    (uWhiteFurnace ? vec3(0.5) : texture(uEnvironment, directionToUv(ray)).rgb);
+    (uWhiteFurnace ? vec3(0.5) : min(texture(uEnvironment, directionToUv(ray)).rgb, vec3(60000.0)));
   fragColor = vec4(color, 0.0);
 }`;
 
@@ -351,6 +351,7 @@ vec3 acesToneMap(vec3 color) {
   const float c = 2.43;
   const float d = 0.59;
   const float e = 0.14;
+  color = clamp(color, vec3(0.0), vec3(60000.0));
   return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
 }
 void main() {

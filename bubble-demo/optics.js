@@ -281,9 +281,13 @@ export function decodeRadianceHdr(arrayBuffer) {
   for (let index = 0; index < width * height; index += 1) {
     const exponent = rgbe[index * 4 + 3];
     const scale = exponent ? Math.pow(2, exponent - 136) : 0;
-    data[index * 4] = rgbe[index * 4] * scale;
-    data[index * 4 + 1] = rgbe[index * 4 + 1] * scale;
-    data[index * 4 + 2] = rgbe[index * 4 + 2] * scale;
+    // RGBA16F cannot represent values above 65504. Some sun pixels in the
+    // Vondelpark HDR reach ~9e5; leaving them unclamped converts them to Inf,
+    // and the ACES ratio then becomes Inf/Inf (NaN), rendered as a black patch.
+    const halfFloatMaximum = 65504;
+    data[index * 4] = Math.min(rgbe[index * 4] * scale, halfFloatMaximum);
+    data[index * 4 + 1] = Math.min(rgbe[index * 4 + 1] * scale, halfFloatMaximum);
+    data[index * 4 + 2] = Math.min(rgbe[index * 4 + 2] * scale, halfFloatMaximum);
     data[index * 4 + 3] = 1;
   }
   return { width, height, data };

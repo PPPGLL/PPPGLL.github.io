@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js";
+} from "./math.js?v=20260807-2";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -215,6 +215,14 @@ export class BubbleSimulation {
 
   setToolMode(mode) {
     this.params.toolMode = mode === "browse" ? "browse" : "edit";
+    if (this.params.toolMode === "edit") {
+      this.params.workspaceMode = "static";
+      this.bubbles.forEach((bubble) => {
+        bubble.velocity = [0, 0, 0];
+        bubble.moving = false;
+      });
+      this.rebuildEditorOverlapBonds();
+    }
     this.interaction = this.createInteractionState();
     this.selectedIds = [];
   }
@@ -508,6 +516,7 @@ export class BubbleSimulation {
   importScene(snapshot) {
     if (!snapshot || !Array.isArray(snapshot.bubbles) || !Array.isArray(snapshot.bonds)) return false;
     Object.assign(this.params, snapshot.params || {});
+    if (this.params.toolMode === "edit") this.params.workspaceMode = "static";
     this.cameraYaw = Number(snapshot.cameraYaw) || 0;
     this.bubbles = snapshot.bubbles.slice(0, MAX_EDITOR_BUBBLES).map((bubble) => ({
       ...bubble,
@@ -517,6 +526,12 @@ export class BubbleSimulation {
       quadrupoleVelocity: [...bubble.quadrupoleVelocity],
       clipPlanes: []
     }));
+    if (this.params.workspaceMode === "static") {
+      this.bubbles.forEach((bubble) => {
+        bubble.velocity = [0, 0, 0];
+        bubble.moving = false;
+      });
+    }
     const validIds = new Set(this.bubbles.map((bubble) => bubble.id));
     this.bonds = snapshot.bonds.filter((bond) => validIds.has(bond.firstId) && validIds.has(bond.secondId));
     this.nextBubbleId = Math.max(0, ...validIds) + 1;

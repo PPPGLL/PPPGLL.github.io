@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js";
-import { BubbleRenderer } from "./renderer.js";
-import { rayFromScreen } from "./math.js";
+import { BubbleSimulation } from "./physics.js?v=20260807-2";
+import { BubbleRenderer } from "./renderer.js?v=20260807-2";
+import { rayFromScreen } from "./math.js?v=20260807-2";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
@@ -107,11 +107,13 @@ function updateModeButtons() {
 
 staticButton.addEventListener("click", () => {
   simulation.setWorkspaceMode("static");
+  simulation.setToolMode("edit");
   updateModeButtons();
 });
 
 realtimeButton.addEventListener("click", () => {
   simulation.setWorkspaceMode("realtime");
+  simulation.setToolMode("browse");
   updateModeButtons();
 });
 
@@ -181,7 +183,7 @@ launchButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   if (simulation.params.workspaceMode !== "realtime") {
     simulation.setWorkspaceMode("realtime");
-    simulation.setToolMode("edit");
+    simulation.setToolMode("browse");
     updateModeButtons();
   }
   launchHeld = true;
