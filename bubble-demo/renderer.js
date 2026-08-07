@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-18";
+import { v3, m3 } from "./math.js?v=20260807-19";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-18";
+} from "./optics.js?v=20260807-19";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -87,6 +87,13 @@ vec3 sampleEnvironment(vec3 direction) {
   // and clipped seams. Very coarse HDR mips spread the sun across those pixels
   // and produce a false white outline, so retain only two useful LOD levels.
   float lod = clamp(0.5 * log2(max(footprintSquared, 1.0)), 0.0, 2.0);
+  // Generated equirectangular mip levels do not filter across the horizontal
+  // wrap boundary. Fade back to the continuous base level around U=0/1 so the
+  // independently averaged mip edges cannot meet as a bright reflected seam.
+  float seamDistance = min(uv.x, 1.0 - uv.x);
+  float seamWidth = 4.0 * exp2(lod) / max(textureDimensions.x, 1.0);
+  float seamLodWeight = smoothstep(0.0, seamWidth, seamDistance);
+  lod *= seamLodWeight;
   return clamp(finiteColor(textureLod(uEnvironment, uv, lod).rgb),
     vec3(0.0), vec3(60000.0));
 }

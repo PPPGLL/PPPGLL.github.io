@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-18";
+} from "./math.js?v=20260807-19";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
