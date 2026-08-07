@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-15";
+} from "./math.js?v=20260807-16";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -19,6 +19,7 @@ const MAX_SPEED = 10;
 // not exceed half of the smaller radius. For equal bubbles this keeps their
 // center distance at or above 1.5 radii instead of allowing it to fall to one.
 const MAXIMUM_BOND_OVERLAP_TO_MINIMUM_RADIUS = .5;
+const CONTAINER_VIEWPORT_FILL = .9;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -99,6 +100,7 @@ export class BubbleSimulation {
     this.cameraYaw = 0;
     this.cameraPitch = 0;
     this.cameraTarget = [0, 0, 0];
+    this.initialContainerBounds = null;
     this.elapsed = 0;
     this.fps = 0;
     this.interaction = this.createInteractionState();
@@ -806,27 +808,37 @@ export class BubbleSimulation {
     return this.nextRandom() < probability && this.createBond(first, second);
   }
 
-  containerBounds(aspect) {
-    const distance = this.params.cameraDistance;
-    const halfVertical = .5 * this.params.cameraFov * PI / 180;
-    const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
-    const maximumPhysicalRadius = Math.max(
-      this.params.radiusCentimeters * .01,
-      this.params.randomize ? .06 : 0,
-      ...this.bubbles.map((bubble) => bubble.physicalRadius)
-    ) * WORLD_UNITS_PER_METER;
-    const radius = Math.max(.9 * distance * Math.sin(halfHorizontal), 1.5 * maximumPhysicalRadius);
-    // The original phone app used a portrait viewport. On a landscape web
-    // viewport its conservative "front edge of the full cylinder" term makes
-    // the vertical range collapse as the horizontal cylinder grows. Cap only
-    // that depth allowance, while keeping the original formula unchanged for
-    // portrait layouts.
-    const verticalDepthAllowance = Math.min(radius, .32 * distance);
-    const halfHeight = Math.max(
-      .9 * Math.tan(halfVertical) * (distance - verticalDepthAllowance),
-      2 * maximumPhysicalRadius
-    );
-    return { radius, halfHeight };
+  maximumBubbleWorldRadius() {
+    let referenceRadius = this.params.radiusCentimeters * .01;
+    if (this.params.randomize) referenceRadius = Math.max(referenceRadius, .06);
+    this.bubbles.forEach((bubble) => {
+      referenceRadius = Math.max(referenceRadius, bubble.physicalRadius);
+    });
+    return referenceRadius * WORLD_UNITS_PER_METER;
+  }
+
+  containerBounds(aspect = 1) {
+    if (!this.initialContainerBounds) {
+      const verticalHalfAngle = .5 * this.params.cameraFov * PI / 180;
+      const verticalTangent = Math.tan(verticalHalfAngle);
+      const horizontalHalfAngle = Math.atan(verticalTangent * Math.max(aspect, .1));
+      const maximumBubbleRadius = this.maximumBubbleWorldRadius();
+      const initialCameraDistance = this.params.cameraDistance;
+      const radius = Math.max(
+        CONTAINER_VIEWPORT_FILL * initialCameraDistance * Math.sin(horizontalHalfAngle),
+        1.5 * maximumBubbleRadius
+      );
+      // Keep the taller landscape framing already used by the web adaptation,
+      // while deriving it from the initial camera instead of fixed constants.
+      const verticalDepthAllowance = Math.min(radius, .32 * initialCameraDistance);
+      const halfHeight = Math.max(
+        CONTAINER_VIEWPORT_FILL * verticalTangent *
+          (initialCameraDistance - verticalDepthAllowance),
+        2 * maximumBubbleRadius
+      );
+      this.initialContainerBounds = { radius, halfHeight };
+    }
+    return this.initialContainerBounds;
   }
 
   solveCollision(first, second, firstIndex, secondIndex, firstIteration) {
@@ -959,6 +971,9 @@ export class BubbleSimulation {
   update(deltaTime, aspect) {
     const dt = clamp(deltaTime, 0, .05);
     this.elapsed += dt;
+    // Capture the viewport-dependent container exactly once, before any early
+    // return from static/edit/preview modes. Later camera changes are visual only.
+    this.containerBounds(aspect);
     if (this.params.singlePreview) {
       const target = this.calculateAerodynamicQuadrupole(
         [0, this.params.motionSpeed, 0],
