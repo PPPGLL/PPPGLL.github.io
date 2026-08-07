@@ -1,13 +1,20 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-7";
-import { BubbleRenderer } from "./renderer.js?v=20260807-7";
-import { rayFromScreen } from "./math.js?v=20260807-7";
+import { BubbleSimulation } from "./physics.js?v=20260807-9";
+import { BubbleRenderer } from "./renderer.js?v=20260807-9";
+import { rayFromScreen } from "./math.js?v=20260807-9";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
 const loadingLabel = document.querySelector("#loading-label");
 const fpsLabel = document.querySelector("#fps");
 const countLabel = document.querySelector("#counts");
+const controlPanel = document.querySelector(".control-panel");
 const simulation = new BubbleSimulation();
+
+document.querySelector("#panel-collapse").addEventListener("click", (event) => {
+  const collapsed = controlPanel.classList.toggle("collapsed");
+  event.currentTarget.textContent = collapsed ? "+" : "−";
+  event.currentTarget.setAttribute("aria-label", collapsed ? "展开参数面板" : "收起参数面板");
+});
 
 let renderer;
 try {
@@ -51,6 +58,10 @@ function updateOutput(input) {
   }
   const precision = Number(input.dataset.precision ?? 2);
   const suffix = input.dataset.suffix ?? "";
+  if (input.dataset.param === "depthOfFieldMode") {
+    output.textContent = value === 0 ? "单次" : "逐层";
+    return;
+  }
   output.textContent = `${value.toFixed(precision)}${suffix}`;
 }
 
@@ -111,13 +122,11 @@ function updateModeButtons() {
 
 staticButton.addEventListener("click", () => {
   simulation.setWorkspaceMode("static");
-  simulation.setToolMode("edit");
   updateModeButtons();
 });
 
 realtimeButton.addEventListener("click", () => {
   simulation.setWorkspaceMode("realtime");
-  simulation.setToolMode("browse");
   updateModeButtons();
 });
 
@@ -183,7 +192,7 @@ function centerRay() {
 }
 
 document.querySelector("#random-place").addEventListener("click", () => {
-  if (simulation.params.workspaceMode !== "static") {
+  if (simulation.params.workspaceMode !== "static" || simulation.params.toolMode !== "edit") {
     simulation.setWorkspaceMode("static");
     simulation.setToolMode("edit");
     updateModeButtons();
@@ -215,6 +224,8 @@ const selectedPanel = document.querySelector("#selected-panel");
 const selectedProperties = document.querySelector("#selected-properties");
 const selectedCount = document.querySelector("#selected-count");
 const selectedInputs = [...document.querySelectorAll("[data-selected-prop]")];
+const selectedModeRows = [...document.querySelectorAll("[data-selected-mode]")];
+const multiEditActions = document.querySelector("#multi-edit-actions");
 
 const selectedFieldFormat = {
   physicalRadius: { get: (bubble) => bubble.physicalRadius * 100, patch: (value) => value * .01, digits: 1, suffix: " cm" },
@@ -234,6 +245,10 @@ function updateSelectionPanel() {
   if (!visible) return;
   selectedCount.textContent = `${selected.length} 个`;
   selectedProperties.hidden = selected.length !== 1;
+  selectedModeRows.forEach((row) => {
+    row.hidden = row.dataset.selectedMode !== simulation.params.workspaceMode;
+  });
+  multiEditActions.hidden = simulation.params.workspaceMode !== "static";
   if (selected.length !== 1) return;
   const bubble = selected[0];
   selectedInputs.forEach((input) => {
@@ -257,33 +272,96 @@ selectedInputs.forEach((input) => {
   input.addEventListener("change", updateSelectionPanel);
 });
 
-const snapshotKey = "bubble-demo-scene-v5";
-document.querySelector("#snapshot-save").addEventListener("click", () => {
-  localStorage.setItem(snapshotKey, JSON.stringify(simulation.exportScene()));
+const snapshotPanel = document.querySelector("#snapshot-panel");
+const snapshotSlots = document.querySelector("#snapshot-slots");
+const snapshotPreview = document.querySelector("#snapshot-preview");
+let selectedSnapshotSlot = 1;
+
+function snapshotKey(slot, kind = "scene") {
+  return `bubble-demo-v6-${kind}-${slot}`;
+}
+
+function showTransientStatus(message, duration = 1400) {
   loadingLabel.hidden = false;
-  loadingLabel.textContent = "场景已保存到当前浏览器";
-  window.setTimeout(() => { loadingLabel.hidden = true; }, 1400);
+  loadingLabel.textContent = message;
+  window.setTimeout(() => { loadingLabel.hidden = true; }, duration);
+}
+
+function syncParameterInputs() {
+  parameterInputs.forEach((input) => {
+    const value = simulation.params[input.dataset.param];
+    if (value === undefined) return;
+    if (input.type === "checkbox") input.checked = Boolean(value);
+    else input.value = String(value);
+    updateOutput(input);
+  });
+}
+
+function updateSnapshotSlots() {
+  [...snapshotSlots.children].forEach((button, index) => {
+    const slot = index + 1;
+    button.classList.toggle("active", slot === selectedSnapshotSlot);
+    button.classList.toggle("saved", localStorage.getItem(snapshotKey(slot)) !== null);
+  });
+  const thumbnail = localStorage.getItem(snapshotKey(selectedSnapshotSlot, "thumbnail"));
+  snapshotPreview.hidden = !thumbnail;
+  if (thumbnail) snapshotPreview.src = thumbnail;
+  else snapshotPreview.removeAttribute("src");
+}
+
+for (let slot = 1; slot <= 6; slot += 1) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "snapshot-slot";
+  button.textContent = String(slot);
+  button.addEventListener("click", () => {
+    selectedSnapshotSlot = slot;
+    updateSnapshotSlots();
+  });
+  snapshotSlots.append(button);
+}
+
+document.querySelector("#snapshot-toggle").addEventListener("click", () => {
+  snapshotPanel.hidden = !snapshotPanel.hidden;
+  if (!snapshotPanel.hidden) updateSnapshotSlots();
 });
+
+function captureSnapshotThumbnail() {
+  renderer.render();
+  const thumbnailCanvas = document.createElement("canvas");
+  thumbnailCanvas.width = 240;
+  thumbnailCanvas.height = 135;
+  thumbnailCanvas.getContext("2d").drawImage(canvas, 0, 0, 240, 135);
+  return thumbnailCanvas.toDataURL("image/jpeg", .72);
+}
+
+document.querySelector("#snapshot-save").addEventListener("click", () => {
+  const key = snapshotKey(selectedSnapshotSlot);
+  if (localStorage.getItem(key) !== null &&
+      !window.confirm(`快照槽位 ${selectedSnapshotSlot} 已有场景，是否覆盖？`)) return;
+  localStorage.setItem(key, JSON.stringify(simulation.exportScene()));
+  try {
+    localStorage.setItem(
+      snapshotKey(selectedSnapshotSlot, "thumbnail"),
+      captureSnapshotThumbnail()
+    );
+  } catch {
+    localStorage.removeItem(snapshotKey(selectedSnapshotSlot, "thumbnail"));
+  }
+  updateSnapshotSlots();
+  showTransientStatus(`场景已保存到快照槽位 ${selectedSnapshotSlot}`);
+});
+
 document.querySelector("#snapshot-load").addEventListener("click", () => {
   try {
-    const snapshot = JSON.parse(localStorage.getItem(snapshotKey) || "null");
+    const snapshot = JSON.parse(localStorage.getItem(snapshotKey(selectedSnapshotSlot)) || "null");
     if (!simulation.importScene(snapshot)) throw new Error("empty");
-    parameterInputs.forEach((input) => {
-      const value = simulation.params[input.dataset.param];
-      if (value === undefined) return;
-      if (input.type === "checkbox") input.checked = Boolean(value);
-      else input.value = String(value);
-      updateOutput(input);
-    });
+    syncParameterInputs();
     updateModeButtons();
     updateSelectionPanel();
-    loadingLabel.hidden = false;
-    loadingLabel.textContent = "场景读取完成";
-    window.setTimeout(() => { loadingLabel.hidden = true; }, 1200);
+    showTransientStatus(`快照槽位 ${selectedSnapshotSlot} 读取完成`, 1200);
   } catch {
-    loadingLabel.hidden = false;
-    loadingLabel.textContent = "还没有已保存的场景";
-    window.setTimeout(() => { loadingLabel.hidden = true; }, 1500);
+    showTransientStatus(`快照槽位 ${selectedSnapshotSlot} 还没有场景`, 1500);
   }
 });
 
@@ -296,9 +374,14 @@ let pointerMode = "none";
 const activePointers = new Map();
 let gesturePreviousMidpoint = [0, 0];
 let gesturePreviousDistance = 0;
+let fovOverlayTimer = 0;
+const fovOverlay = document.querySelector("#fov-overlay");
 let boxTimer = 0;
+let bubbleLongPressTimer = 0;
 let boxStart = [0, 0];
 let boxCurrent = [0, 0];
+let bubbleLongPressStart = [0, 0];
+let bubbleLongPressEvent = null;
 let lastBlankTap = { time: -1000, x: 0, y: 0 };
 const selectionBox = document.querySelector("#selection-box");
 
@@ -317,6 +400,12 @@ function clearBoxTimer() {
   boxTimer = 0;
 }
 
+function clearBubbleLongPressTimer() {
+  clearTimeout(bubbleLongPressTimer);
+  bubbleLongPressTimer = 0;
+  bubbleLongPressEvent = null;
+}
+
 function drawSelectionBox() {
   const rect = canvas.getBoundingClientRect();
   const left = Math.min(boxStart[0], boxCurrent[0]) + rect.left;
@@ -329,6 +418,7 @@ function drawSelectionBox() {
 
 function cancelBoxSelection() {
   clearBoxTimer();
+  clearBubbleLongPressTimer();
   selectionBox.classList.remove("active");
 }
 
@@ -336,6 +426,17 @@ function syncCameraDistanceInput() {
   const input = document.querySelector('[data-param="cameraDistance"]');
   input.value = String(simulation.params.cameraDistance);
   updateOutput(input);
+}
+
+function syncCameraFovInput(showOverlay = false) {
+  const input = document.querySelector('[data-param="cameraFov"]');
+  input.value = String(simulation.params.cameraFov);
+  updateOutput(input);
+  if (!showOverlay) return;
+  clearTimeout(fovOverlayTimer);
+  fovOverlay.textContent = `FOV ${Math.round(simulation.params.cameraFov)}°`;
+  fovOverlay.hidden = false;
+  fovOverlayTimer = window.setTimeout(() => { fovOverlay.hidden = true; }, 700);
 }
 
 function orbitCamera(deltaX, deltaY) {
@@ -395,20 +496,25 @@ canvas.addEventListener("pointerdown", (event) => {
   if (simulation.params.toolMode === "edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
     const picked = simulation.pickBubble(ray);
-    if (!picked && simulation.params.workspaceMode === "static") {
-      pointerMode = "box-candidate";
-      boxStart = [point.x, point.y];
-      boxCurrent = [point.x, point.y];
-      clearBoxTimer();
-      boxTimer = window.setTimeout(() => {
-        if (pointerMode !== "box-candidate") return;
-        pointerMode = "box-select";
-        simulation.clearSelection();
-        selectionBox.classList.add("active");
-        drawSelectionBox();
-        updateSelectionPanel();
-      }, 250);
-    } else {
+    if (!picked) {
+      if (simulation.params.workspaceMode === "static") {
+        pointerMode = "box-candidate";
+        boxStart = [point.x, point.y];
+        boxCurrent = [point.x, point.y];
+        clearBoxTimer();
+        boxTimer = window.setTimeout(() => {
+          if (pointerMode !== "box-candidate") return;
+          pointerMode = "box-select";
+          simulation.clearSelection();
+          selectionBox.classList.add("active");
+          drawSelectionBox();
+          updateSelectionPanel();
+        }, 250);
+      } else {
+        // Realtime edit pauses external interaction; blank drag orbits the camera.
+        pointerMode = "browse";
+      }
+    } else if (simulation.selectedIds.includes(picked.bubble.id)) {
       pointerMode = "bubble-edit";
       simulation.pointerDown(
         ray,
@@ -417,7 +523,37 @@ canvas.addEventListener("pointerdown", (event) => {
         camera
       );
       updateSelectionPanel();
+    } else {
+      pointerMode = "bubble-candidate";
+      bubbleLongPressStart = [point.x, point.y];
+      bubbleLongPressEvent = {
+        ray,
+        screen: [point.x, point.y],
+        timestamp: event.timeStamp / 1000
+      };
+      clearTimeout(bubbleLongPressTimer);
+      bubbleLongPressTimer = window.setTimeout(() => {
+        if (pointerMode !== "bubble-candidate" || !bubbleLongPressEvent) return;
+        const pending = bubbleLongPressEvent;
+        pointerMode = "bubble-edit";
+        simulation.pointerDown(pending.ray, pending.screen, pending.timestamp, camera);
+        bubbleLongPressTimer = 0;
+        bubbleLongPressEvent = null;
+        updateSelectionPanel();
+      }, 250);
     }
+  } else if (simulation.params.workspaceMode === "realtime") {
+    // Native realtime browse uses the primary pointer for bubble dragging,
+    // double-tap popping, airflow and exposed-bond cutting. Camera movement
+    // remains available through right/middle/Shift drag and multitouch.
+    const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
+    pointerMode = "live-interaction";
+    simulation.pointerDown(
+      ray,
+      [point.x, point.y],
+      event.timeStamp / 1000,
+      camera
+    );
   }
 });
 
@@ -439,11 +575,11 @@ canvas.addEventListener("pointermove", (event) => {
       midpoint[1] - gesturePreviousMidpoint[1],
       point.height
     );
-    simulation.params.cameraDistance = Math.max(20, Math.min(120,
-      simulation.params.cameraDistance * gesturePreviousDistance / distance));
+    simulation.params.cameraFov = Math.max(25, Math.min(90,
+      simulation.params.cameraFov * gesturePreviousDistance / distance));
     gesturePreviousMidpoint = midpoint;
     gesturePreviousDistance = distance;
-    syncCameraDistanceInput();
+    syncCameraFovInput(true);
     event.preventDefault();
     return;
   }
@@ -461,7 +597,18 @@ canvas.addEventListener("pointermove", (event) => {
       previousPointerX = point.x;
       previousPointerY = point.y;
     }
-  } else if (pointerMode === "bubble-edit") {
+  } else if (pointerMode === "bubble-candidate") {
+    if (Math.hypot(
+      point.x - bubbleLongPressStart[0],
+      point.y - bubbleLongPressStart[1]
+    ) > 10) {
+      clearBubbleLongPressTimer();
+      pointerMode = "browse";
+      orbitCamera(point.x - previousPointerX, point.y - previousPointerY);
+      previousPointerX = point.x;
+      previousPointerY = point.y;
+    }
+  } else if (pointerMode === "bubble-edit" || pointerMode === "live-interaction") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
     simulation.pointerMove(
       ray,
@@ -535,7 +682,9 @@ function endPointer(event) {
       }
       updateSelectionPanel();
     }
-  } else if (endingMode === "bubble-edit") {
+  } else if (endingMode === "bubble-candidate") {
+    clearBubbleLongPressTimer();
+  } else if (endingMode === "bubble-edit" || endingMode === "live-interaction") {
     simulation.pointerUp();
     updateSelectionPanel();
   }

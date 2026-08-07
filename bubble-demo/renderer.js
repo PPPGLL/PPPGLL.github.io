@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-7";
+import { v3, m3 } from "./math.js?v=20260807-9";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-7";
+} from "./optics.js?v=20260807-9";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -54,6 +54,13 @@ uniform float uTime;
 uniform float uFilmThickness;
 uniform float uEta2;
 
+float finiteOrZero(float value) {
+  return (isnan(value) || isinf(value)) ? 0.0 : value;
+}
+vec3 finiteColor(vec3 value) {
+  return vec3(finiteOrZero(value.r), finiteOrZero(value.g), finiteOrZero(value.b));
+}
+
 vec2 directionToEquirectUv(vec3 direction) {
   direction = normalize(direction);
   return vec2(
@@ -64,7 +71,8 @@ vec2 directionToEquirectUv(vec3 direction) {
 
 vec3 sampleEnvironment(vec3 direction) {
   if (uWhiteFurnace) return vec3(0.5);
-  return min(texture(uEnvironment, directionToEquirectUv(direction)).rgb, vec3(60000.0));
+  return clamp(finiteColor(texture(uEnvironment, directionToEquirectUv(direction)).rgb),
+    vec3(0.0), vec3(60000.0));
 }
 
 float safeProjectionDenominator(float value) {
@@ -113,7 +121,7 @@ uniform bool uBackReflection;
 uniform bool uFrontTransmission;
 uniform bool uFrontReflection;
 uniform int uClipPlaneCount;
-uniform vec4 uClipPlanes[6];
+uniform vec4 uClipPlanes[16];
 uniform int uBlendChannel;
 uniform float uNormalBlendWidth;
 uniform float uNormalBlendStrength;
@@ -123,7 +131,7 @@ in vec3 vWorldNormal;
 out vec4 fragColor;
 
 bool clipped(vec3 position) {
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 16; ++i) {
     if (i >= uClipPlaneCount) break;
     if (dot(vec4(position, 1.0), uClipPlanes[i]) > 0.0) return true;
   }
@@ -134,7 +142,7 @@ vec3 resolveSurfaceNormal(vec3 position, vec3 normal) {
   vec3 target = normal;
   float totalWeight = 1.0;
   float edgeWeight = 0.0;
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 16; ++i) {
     if (i >= uClipPlaneCount) break;
     vec4 plane = uClipPlanes[i];
     float weight = 1.0 - smoothstep(0.0, max(uNormalBlendWidth, 0.0001),
@@ -192,6 +200,21 @@ void main() {
   fragColor = vec4(emitted, 1.0 - totalT[channel]);
 }`;
 
+const depthFragment = `#version 300 es
+precision highp float;
+uniform vec3 uCameraPosition;
+uniform int uClipPlaneCount;
+uniform vec4 uClipPlanes[16];
+in vec3 vWorldPosition;
+layout(location=0) out vec4 outDepth;
+void main() {
+  for (int i = 0; i < 16; ++i) {
+    if (i >= uClipPlaneCount) break;
+    if (dot(vec4(vWorldPosition, 1.0), uClipPlanes[i]) > 0.0) discard;
+  }
+  outDepth = vec4(length(vWorldPosition - uCameraPosition), 0.0, 0.0, 1.0);
+}`;
+
 const backgroundFragment = `#version 300 es
 precision highp float;
 in vec2 vUv;
@@ -219,8 +242,14 @@ void main() {
     uCameraRight * (p.x * uTanHalfFov * uAspect) +
     uCameraUp * (p.y * uTanHalfFov)
   );
+  vec3 sampled = texture(uEnvironment, directionToUv(ray)).rgb;
+  sampled = vec3(
+    (isnan(sampled.r) || isinf(sampled.r)) ? 0.0 : sampled.r,
+    (isnan(sampled.g) || isinf(sampled.g)) ? 0.0 : sampled.g,
+    (isnan(sampled.b) || isinf(sampled.b)) ? 0.0 : sampled.b
+  );
   vec3 color = uBubbleOnly ? vec3(1.0) :
-    (uWhiteFurnace ? vec3(0.5) : min(texture(uEnvironment, directionToUv(ray)).rgb, vec3(60000.0)));
+    (uWhiteFurnace ? vec3(0.5) : clamp(sampled, vec3(0.0), vec3(60000.0)));
   fragColor = vec4(color, 0.0);
 }`;
 
@@ -239,6 +268,9 @@ uniform float uBorderRatio;
 uniform bool uPlateauMode;
 uniform float uNormalBlendStrength;
 uniform float uPlateauBorderStrength;
+uniform int uClipPlaneCount;
+uniform vec4 uClipPlanes[16];
+uniform float uNormalBlendWidth;
 out vec3 vWorldPosition;
 out vec3 vWorldNormal;
 
@@ -299,15 +331,45 @@ uniform vec3 uAxis;
 uniform float uRadius;
 uniform float uNormalBlendStrength;
 uniform float uPlateauBorderStrength;
+uniform int uClipPlaneCount;
+uniform vec4 uClipPlanes[16];
+uniform float uNormalBlendWidth;
 in vec3 vWorldPosition;
 in vec3 vWorldNormal;
 layout(location=0) out vec4 outOpticalDepth;
 layout(location=1) out vec4 outWeightedReflection;
+bool clipped(vec3 position) {
+  for (int i = 0; i < 16; ++i) {
+    if (i >= uClipPlaneCount) break;
+    if (dot(vec4(position, 1.0), uClipPlanes[i]) > 0.0) return true;
+  }
+  return false;
+}
+vec3 resolveSurfaceNormal(vec3 position, vec3 normal) {
+  vec3 target = normal;
+  float totalWeight = 1.0;
+  float edgeWeight = 0.0;
+  for (int i = 0; i < 16; ++i) {
+    if (i >= uClipPlaneCount) break;
+    vec4 plane = uClipPlanes[i];
+    float insideDistance = max(-dot(vec4(position, 1.0), plane), 0.0);
+    float weight = 1.0 - smoothstep(0.0, max(uNormalBlendWidth, 0.0001), insideDistance);
+    vec3 planeNormal = normalize(plane.xyz);
+    if (dot(planeNormal, normal) < 0.0) planeNormal = -planeNormal;
+    target += planeNormal * weight;
+    totalWeight += weight;
+    edgeWeight = max(edgeWeight, weight);
+  }
+  vec3 blended = normalize(target / totalWeight);
+  return normalize(mix(normal, blended, edgeWeight * uNormalBlendStrength));
+}
 void main() {
+  if (clipped(vWorldPosition)) discard;
   vec3 eye = normalize(vWorldPosition - uCameraPosition);
-  vec3 normal = normalize(vWorldNormal);
+  vec3 normal = resolveSurfaceNormal(vWorldPosition, normalize(vWorldNormal));
   float edge = uPlateauMode ? 1.0 : smoothstep(0.68, 1.0, length(vWorldPosition - uCenter) / max(uRadius, 0.0001));
-  vec3 seamNormal = normalize(mix(normal, uPlateauMode ? normal : uAxis, edge * uNormalBlendStrength));
+  vec3 seamNormal = normalize(mix(normal, uPlateauMode ? normal : uAxis,
+    edge * uNormalBlendStrength * (uClipPlaneCount == 0 ? 1.0 : 0.25)));
   normal = seamNormal;
   if (dot(normal, -eye) < 0.0) normal = -normal;
   vec3 reflectance;
@@ -334,6 +396,7 @@ out vec4 fragColor;
 uniform sampler2D uScene;
 uniform sampler2D uOpticalDepth;
 uniform sampler2D uWeightedReflection;
+uniform sampler2D uSceneDepth;
 uniform bool uWhiteFurnace;
 uniform bool uConnectionTransmission;
 uniform bool uConnectionReflection;
@@ -354,39 +417,50 @@ vec3 acesToneMap(vec3 color) {
   color = clamp(color, vec3(0.0), vec3(60000.0));
   return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
 }
-void main() {
-  vec4 sceneSample = texture(uScene, vUv);
-  vec3 scene = sceneSample.rgb;
-  vec3 tau = texture(uOpticalDepth, vUv).rgb;
-  vec3 weighted = texture(uWeightedReflection, vUv).rgb;
+vec3 finiteColor(vec3 value) {
+  return vec3(
+    (isnan(value.r) || isinf(value.r)) ? 0.0 : value.r,
+    (isnan(value.g) || isinf(value.g)) ? 0.0 : value.g,
+    (isnan(value.b) || isinf(value.b)) ? 0.0 : value.b
+  );
+}
+vec3 composeAt(vec2 uv) {
+  vec3 scene = texture(uScene, uv).rgb;
+  vec3 tau = texture(uOpticalDepth, uv).rgb;
+  vec3 weighted = texture(uWeightedReflection, uv).rgb;
   vec3 transmission = exp(-tau);
   vec3 averageEnvironment = vec3(0.0);
   averageEnvironment.r = tau.r > 0.00001 ? weighted.r / tau.r : 0.0;
   averageEnvironment.g = tau.g > 0.00001 ? weighted.g / tau.g : 0.0;
   averageEnvironment.b = tau.b > 0.00001 ? weighted.b / tau.b : 0.0;
-  vec3 color = scene;
-  if (uConnectionTransmission) color *= transmission;
-  else color *= vec3(0.0);
-  if (uConnectionReflection) color += averageEnvironment * (vec3(1.0) - transmission);
+  vec3 result = uConnectionTransmission ? scene * transmission : vec3(0.0);
+  if (uConnectionReflection) result += averageEnvironment * (vec3(1.0) - transmission);
+  return result;
+}
+void main() {
+  vec4 sceneSample = texture(uScene, vUv);
+  vec3 tau = texture(uOpticalDepth, vUv).rgb;
+  vec3 transmission = exp(-tau);
+  vec3 color = composeAt(vUv);
   if (uDepthOfFieldEnabled && uDepthOfFieldStrength > 0.001) {
-    float bubbleMask = clamp(sceneSample.a + dot(vec3(0.3333), 1.0 - transmission), 0.0, 1.0);
-    float bubbleDefocus = abs(54.0 - uDepthOfFieldFocusDistance) / max(uDepthOfFieldFocusDistance, 1.0);
-    float backgroundDefocus = abs(uDepthOfFieldBackgroundDistance - uDepthOfFieldFocusDistance) /
+    float viewDepth = texture(uSceneDepth, vUv).r;
+    float normalizedDefocus = abs(viewDepth - uDepthOfFieldFocusDistance) /
       max(uDepthOfFieldFocusDistance, 1.0);
-    float radius = clamp(mix(backgroundDefocus, bubbleDefocus, bubbleMask) *
-      18.0 * uDepthOfFieldStrength, 0.0, 10.0);
+    float radius = clamp(normalizedDefocus * 36.0 * uDepthOfFieldStrength,
+      0.0, 10.0 * uDepthOfFieldStrength);
     vec3 blur = vec3(0.0);
-    float samples = uDepthOfFieldMode == 1 ? 8.0 : 16.0;
+    float samples = uDepthOfFieldMode == 0 ? 8.0 : 16.0;
     for (int i = 0; i < 16; ++i) {
       if (float(i) >= samples) break;
       float angle = float(i) * 2.39996323;
       float ring = sqrt((float(i) + 0.5) / samples);
       vec2 offset = vec2(cos(angle), sin(angle)) * ring * radius / uResolution;
-      blur += texture(uScene, clamp(vUv + offset, vec2(0.0), vec2(1.0))).rgb;
+      blur += composeAt(clamp(vUv + offset, vec2(0.0), vec2(1.0)));
     }
     blur /= samples;
     color = mix(color, blur, smoothstep(0.5, 2.0, radius) * 0.82);
   }
+  color = finiteColor(color);
   if (!uWhiteFurnace) color = acesToneMap(color);
   color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
   if (uBubbleOnly && sceneSample.a < 0.001 && dot(tau, tau) < 0.000001) color = vec3(1.0);
@@ -668,8 +742,10 @@ export class BubbleRenderer {
   createPrograms() {
     const gl = this.gl;
     const sphere = compileProgram(gl, sphereVertex, sphereFragment);
+    const sphereDepth = compileProgram(gl, sphereVertex, depthFragment);
     const background = compileProgram(gl, fullScreenVertex, backgroundFragment);
     const connection = compileProgram(gl, connectionVertex, connectionFragment);
+    const connectionDepth = compileProgram(gl, connectionVertex, depthFragment);
     const final = compileProgram(gl, fullScreenVertex, finalFragment);
     const fxaa = compileProgram(gl, fullScreenVertex, fxaaFragment);
     return {
@@ -683,6 +759,13 @@ export class BubbleRenderer {
           "uBackTransmission", "uBackReflection", "uFrontTransmission",
           "uFrontReflection", "uClipPlaneCount", "uClipPlanes[0]", "uBlendChannel",
           "uNormalBlendWidth", "uNormalBlendStrength", "uSelected"
+        ])
+      },
+      sphereDepth: {
+        program: sphereDepth,
+        uniforms: uniformLocations(gl, sphereDepth, [
+          "uViewProjection", "uShape", "uNormalMatrix", "uCenter", "uCameraPosition",
+          "uClipPlaneCount", "uClipPlanes[0]"
         ])
       },
       background: {
@@ -700,13 +783,22 @@ export class BubbleRenderer {
           "uCameraPosition", "uEnvironment", "uFlowNoise", "uThinFilmLut",
           "uWhiteFurnace", "uFlowEnabled", "uFlowNoiseScale", "uFlowSpeed",
           "uFlowAmplitude", "uTime", "uFilmThickness", "uEta2",
-          "uNormalBlendStrength", "uPlateauBorderStrength"
+          "uNormalBlendStrength", "uPlateauBorderStrength", "uClipPlaneCount",
+          "uClipPlanes[0]", "uNormalBlendWidth"
+        ])
+      },
+      connectionDepth: {
+        program: connectionDepth,
+        uniforms: uniformLocations(gl, connectionDepth, [
+          "uViewProjection", "uCenter", "uTangent", "uBitangent", "uAxis",
+          "uRadius", "uSagittaRatio", "uBorderRatio", "uPlateauMode",
+          "uCameraPosition", "uClipPlaneCount", "uClipPlanes[0]"
         ])
       },
       final: {
         program: final,
         uniforms: uniformLocations(gl, final, [
-          "uScene", "uOpticalDepth", "uWeightedReflection", "uWhiteFurnace",
+          "uScene", "uOpticalDepth", "uWeightedReflection", "uSceneDepth", "uWhiteFurnace",
           "uConnectionTransmission", "uConnectionReflection", "uTouchIndicator",
           "uResolution", "uBubbleOnly", "uDepthOfFieldEnabled", "uDepthOfFieldMode",
           "uDepthOfFieldFocusDistance", "uDepthOfFieldBackgroundDistance", "uDepthOfFieldStrength"
@@ -740,10 +832,13 @@ export class BubbleRenderer {
       gl.deleteFramebuffer(this.framebuffers.sceneFbo);
       gl.deleteFramebuffer(this.framebuffers.connectionFbo);
       gl.deleteFramebuffer(this.framebuffers.compositeFbo);
+      gl.deleteFramebuffer(this.framebuffers.depthFbo);
+      gl.deleteRenderbuffer(this.framebuffers.depthRenderbuffer);
       gl.deleteTexture(this.framebuffers.sceneTexture);
       gl.deleteTexture(this.framebuffers.opticalDepthTexture);
       gl.deleteTexture(this.framebuffers.weightedTexture);
       gl.deleteTexture(this.framebuffers.compositeTexture);
+      gl.deleteTexture(this.framebuffers.depthTexture);
     }
     const sceneTexture = createColorTexture(gl, width, height);
     const sceneFbo = gl.createFramebuffer();
@@ -773,6 +868,23 @@ export class BubbleRenderer {
       throw new Error("Floating-point framebuffer is incomplete");
     }
 
+    const depthTexture = createColorTexture(gl, width, height);
+    const depthRenderbuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthRenderbuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    const depthFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, depthFbo);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, depthTexture, 0
+    );
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRenderbuffer
+    );
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error("Depth framebuffer is incomplete");
+    }
+
     const compositeTexture = createDisplayTexture(gl, width, height);
     const compositeFbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, compositeFbo);
@@ -788,6 +900,9 @@ export class BubbleRenderer {
       opticalDepthTexture,
       weightedTexture,
       connectionFbo,
+      depthTexture,
+      depthRenderbuffer,
+      depthFbo,
       compositeTexture,
       compositeFbo
     };
@@ -914,9 +1029,9 @@ export class BubbleRenderer {
       gl.uniformMatrix3fv(entry.uniforms.uNormalMatrix, false, normalMatrix);
       gl.uniform3fv(entry.uniforms.uCenter, bubble.position);
       this.setOpticalUniforms(entry.uniforms, bubble.filmThickness, bubble);
-      const planes = new Float32Array(24);
-      bubble.clipPlanes.slice(0, 6).forEach((plane, index) => planes.set(plane, index * 4));
-      gl.uniform1i(entry.uniforms.uClipPlaneCount, Math.min(bubble.clipPlanes.length, 6));
+      const planes = new Float32Array(64);
+      bubble.clipPlanes.slice(0, 16).forEach((plane, index) => planes.set(plane, index * 4));
+      gl.uniform1i(entry.uniforms.uClipPlaneCount, Math.min(bubble.clipPlanes.length, 16));
       gl.uniform4fv(entry.uniforms["uClipPlanes[0]"], planes);
       const blendWidth = Math.max(
         Math.min(
@@ -962,6 +1077,24 @@ export class BubbleRenderer {
       ? this.simulation.params.plateauBorderNormalBlendStrength
       : this.simulation.params.sharedFilmNormalBlendStrength);
     gl.uniform1f(entry.uniforms.uPlateauBorderStrength, this.simulation.params.plateauBorderStrength);
+    const planes = new Float32Array(64);
+    geometry.clipPlanes.slice(0, 16).forEach((plane, index) => planes.set(plane, index * 4));
+    gl.uniform1i(entry.uniforms.uClipPlaneCount, Math.min(geometry.clipPlanes.length, 16));
+    gl.uniform4fv(entry.uniforms["uClipPlanes[0]"], planes);
+    const blendWidth = Math.max(
+      Math.min(
+        geometry.circleRadius * this.simulation.params.normalBlendWidthScale,
+        Math.max(
+          this.simulation.params.normalBlendMinWidth,
+          this.simulation.params.normalBlendMaxWidth
+        )
+      ),
+      Math.min(
+        this.simulation.params.normalBlendMinWidth,
+        this.simulation.params.normalBlendMaxWidth
+      )
+    );
+    gl.uniform1f(entry.uniforms.uNormalBlendWidth, blendWidth);
     this.setOpticalUniforms(entry.uniforms, geometry.filmThickness, geometry);
     gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
   }
@@ -993,6 +1126,84 @@ export class BubbleRenderer {
     gl.disable(gl.BLEND);
   }
 
+  setDepthClipUniforms(entry, clipPlanes) {
+    const gl = this.gl;
+    const planes = new Float32Array(64);
+    clipPlanes.slice(0, 16).forEach((plane, index) => planes.set(plane, index * 4));
+    gl.uniform1i(entry.uniforms.uClipPlaneCount, Math.min(clipPlanes.length, 16));
+    gl.uniform4fv(entry.uniforms["uClipPlanes[0]"], planes);
+  }
+
+  renderDepth(camera) {
+    const gl = this.gl;
+    const backgroundDepth = this.simulation.params.depthOfFieldBackgroundDistance;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers.depthFbo);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    gl.viewport(0, 0, this.width, this.height);
+    gl.disable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.clearBufferfv(gl.COLOR, 0, new Float32Array([backgroundDepth, 0, 0, 1]));
+    gl.clearDepth(1);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+
+    const sphereEntry = this.programs.sphereDepth;
+    gl.useProgram(sphereEntry.program);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.bindVertexArray(this.meshes.sphere.vao);
+    gl.uniformMatrix4fv(sphereEntry.uniforms.uViewProjection, false, camera.viewProjection);
+    gl.uniform3fv(sphereEntry.uniforms.uCameraPosition, camera.position);
+    this.simulation.renderBubbles().forEach((bubble) => {
+      const shape = m3.scale(
+        this.simulation.shapeMatrix(bubble),
+        this.simulation.getWorldRadius(bubble)
+      );
+      gl.uniformMatrix3fv(sphereEntry.uniforms.uShape, false, shape);
+      gl.uniformMatrix3fv(
+        sphereEntry.uniforms.uNormalMatrix,
+        false,
+        m3.transpose(m3.inverse(shape))
+      );
+      gl.uniform3fv(sphereEntry.uniforms.uCenter, bubble.position);
+      this.setDepthClipUniforms(sphereEntry, bubble.clipPlanes);
+      gl.drawElements(gl.TRIANGLES, this.meshes.sphere.count, gl.UNSIGNED_SHORT, 0);
+    });
+
+    if (!this.simulation.params.singlePreview) {
+      const connectionEntry = this.programs.connectionDepth;
+      gl.useProgram(connectionEntry.program);
+      gl.uniformMatrix4fv(connectionEntry.uniforms.uViewProjection, false, camera.viewProjection);
+      gl.uniform3fv(connectionEntry.uniforms.uCameraPosition, camera.position);
+      this.simulation.bonds.forEach((bond) => {
+        const geometry = this.simulation.calculateBondGeometry(bond);
+        if (!geometry) return;
+        [false, true].forEach((plateauMode) => {
+          const mesh = plateauMode ? this.meshes.plateau : this.meshes.disk;
+          if (plateauMode) gl.enable(gl.CULL_FACE);
+          else gl.disable(gl.CULL_FACE);
+          gl.bindVertexArray(mesh.vao);
+          gl.uniform3fv(connectionEntry.uniforms.uCenter, geometry.center);
+          gl.uniform3fv(connectionEntry.uniforms.uTangent, geometry.tangent);
+          gl.uniform3fv(connectionEntry.uniforms.uBitangent, geometry.bitangent);
+          gl.uniform3fv(connectionEntry.uniforms.uAxis, geometry.normal);
+          gl.uniform1f(
+            connectionEntry.uniforms.uRadius,
+            plateauMode ? geometry.circleRadius : geometry.radius
+          );
+          gl.uniform1f(connectionEntry.uniforms.uSagittaRatio, geometry.sagittaRatio);
+          gl.uniform1f(connectionEntry.uniforms.uBorderRatio, geometry.borderRatio);
+          gl.uniform1i(connectionEntry.uniforms.uPlateauMode, plateauMode);
+          this.setDepthClipUniforms(connectionEntry, geometry.clipPlanes);
+          gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+        });
+      });
+    }
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.DEPTH_TEST);
+  }
+
   renderFinal() {
     const gl = this.gl;
     const entry = this.programs.final;
@@ -1006,6 +1217,7 @@ export class BubbleRenderer {
     setTexture(gl, entry.uniforms.uScene, 0, this.framebuffers.sceneTexture);
     setTexture(gl, entry.uniforms.uOpticalDepth, 1, this.framebuffers.opticalDepthTexture);
     setTexture(gl, entry.uniforms.uWeightedReflection, 2, this.framebuffers.weightedTexture);
+    setTexture(gl, entry.uniforms.uSceneDepth, 3, this.framebuffers.depthTexture);
     gl.uniform1i(entry.uniforms.uWhiteFurnace, this.simulation.params.whiteFurnace);
     gl.uniform1i(entry.uniforms.uConnectionTransmission, this.simulation.params.frontTransmission);
     gl.uniform1i(entry.uniforms.uConnectionReflection, this.simulation.params.frontReflection);
@@ -1041,6 +1253,7 @@ export class BubbleRenderer {
     this.renderBackground(camera);
     this.renderBubbles(camera);
     this.renderConnections(camera);
+    this.renderDepth(camera);
     this.renderFinal();
     this.renderPresent();
     return camera;

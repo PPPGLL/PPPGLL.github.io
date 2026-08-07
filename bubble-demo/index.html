@@ -155,6 +155,15 @@
       gap: 2px;
       margin-top: 4px;
     }
+    .panel-collapse {
+      margin-left: auto;
+      border: 0;
+      color: #d7e6fb;
+      background: transparent;
+      cursor: pointer;
+    }
+    .control-panel.collapsed { width: auto; overflow: hidden; }
+    .control-panel.collapsed > :not(.title-row) { display: none; }
     .workspace-row, .edit-actions {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -254,6 +263,36 @@
       background: rgba(30,70,125,.18);
     }
     .selected-panel[hidden], .selected-properties[hidden] { display: none; }
+    [data-selected-mode][hidden], #multi-edit-actions[hidden], .snapshot-panel[hidden] { display: none; }
+    .developer-only { display: none !important; }
+    .snapshot-panel {
+      margin: 6px 0;
+      padding: 6px;
+      border: 1px solid rgba(130,170,220,.3);
+      border-radius: 6px;
+      background: rgba(8,18,32,.72);
+    }
+    .snapshot-slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+    .snapshot-slot {
+      min-width: 0;
+      padding: 5px 0;
+      border: 1px solid rgba(170,190,220,.28);
+      border-radius: 4px;
+      color: var(--muted);
+      background: rgba(255,255,255,.04);
+    }
+    .snapshot-slot.saved { color: #d9eaff; border-color: rgba(110,168,255,.55); }
+    .snapshot-slot.active { color: white; background: rgba(70,125,205,.55); }
+    #snapshot-preview {
+      display: block;
+      width: 100%;
+      height: 72px;
+      margin-top: 5px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #07101b;
+    }
+    #snapshot-preview[hidden] { display: none; }
     .selected-heading {
       display: flex;
       align-items: center;
@@ -275,6 +314,19 @@
     .error div { max-width: 540px; }
     .error h1 { font: 600 28px Georgia, serif; }
     .error p { color: var(--muted); line-height: 1.7; }
+    .fov-overlay {
+      position: fixed;
+      z-index: 8;
+      left: 50%;
+      bottom: 12%;
+      transform: translateX(-50%);
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: white;
+      background: rgba(4,10,18,.72);
+      pointer-events: none;
+    }
+    .fov-overlay[hidden] { display: none; }
 
     @media (max-width: 680px) {
       .control-panel {
@@ -294,6 +346,7 @@
 <body>
   <canvas id="scene" aria-label="WebGL2 实时泡泡渲染画面"></canvas>
   <div class="selection-box" id="selection-box" aria-hidden="true"></div>
+  <div class="fov-overlay" id="fov-overlay" hidden>FOV 60°</div>
 
   <div class="topbar">
     <span class="status" id="loading-label">正在初始化 HDR</span>
@@ -306,6 +359,7 @@
     <div class="title-row">
       <span class="title-mark" aria-hidden="true"></span>
       <div><strong>透明物体实时色散渲染系统</strong><span>HarmonyOS OpenGL ES → WebGL2</span></div>
+      <button class="panel-collapse" id="panel-collapse" type="button" aria-label="收起参数面板">−</button>
     </div>
 
     <div class="tabs" role="tablist">
@@ -319,32 +373,39 @@
     </div>
 
     <div class="workspace-row" aria-label="场景工作区">
-      <button id="workspace-static" class="mode-button active" type="button">静态编辑</button>
-      <button id="workspace-realtime" class="mode-button" type="button">动态模拟</button>
+      <button id="workspace-static" class="mode-button active" type="button">静态</button>
+      <button id="workspace-realtime" class="mode-button" type="button">动态</button>
       <button id="tool-browse" class="mode-button" type="button">浏览</button>
       <button id="tool-edit" class="mode-button active" type="button">编辑</button>
     </div>
     <div class="edit-actions">
       <button class="action primary" id="random-place" type="button">随机多泡</button>
-      <button class="action" id="snapshot-save" type="button">保存场景</button>
-      <button class="action" id="snapshot-load" type="button">读取场景</button>
+      <button class="action" id="snapshot-toggle" type="button">场景快照</button>
       <button class="action" id="clear-top" type="button">清空</button>
     </div>
+    <section class="snapshot-panel" id="snapshot-panel" hidden>
+      <div class="snapshot-slots" id="snapshot-slots" aria-label="快照槽位"></div>
+      <img id="snapshot-preview" alt="所选场景快照缩略图" hidden>
+      <div class="edit-actions">
+        <button class="action primary" id="snapshot-save" type="button">保存到槽位</button>
+        <button class="action" id="snapshot-load" type="button">读取槽位</button>
+      </div>
+    </section>
     <p class="placement-hint">双击空白处可放置泡泡</p>
 
     <section class="selected-panel" id="selected-panel" hidden>
       <div class="selected-heading"><strong id="selected-heading">选中泡泡</strong><span id="selected-count">1 个</span></div>
       <div class="selected-properties" id="selected-properties">
-        <div class="row"><label for="selected-radius">物理半径</label><span class="slider-wrap"><input id="selected-radius" data-selected-prop="physicalRadius" type="range" min="1" max="8" step=".1"><output data-selected-output="physicalRadius"></output></span></div>
-        <div class="row"><label for="selected-thickness">膜厚</label><span class="slider-wrap"><input id="selected-thickness" data-selected-prop="filmThickness" type="range" min="0" max="1200" step="1"><output data-selected-output="filmThickness"></output></span></div>
-        <div class="row"><label for="selected-flow-enabled">启用流动</label><input id="selected-flow-enabled" data-selected-prop="flowEnabled" type="checkbox"></div>
-        <div class="row"><label for="selected-flow-scale">流动尺度</label><span class="slider-wrap"><input id="selected-flow-scale" data-selected-prop="flowNoiseScale" type="range" min=".1" max="4" step=".05"><output data-selected-output="flowNoiseScale"></output></span></div>
-        <div class="row"><label for="selected-flow-speed">流动速度</label><span class="slider-wrap"><input id="selected-flow-speed" data-selected-prop="flowSpeed" type="range" min="0" max=".5" step=".01"><output data-selected-output="flowSpeed"></output></span></div>
-        <div class="row"><label for="selected-flow-amplitude">膜厚振幅</label><span class="slider-wrap"><input id="selected-flow-amplitude" data-selected-prop="flowAmplitude" type="range" min="0" max="600" step="5"><output data-selected-output="flowAmplitude"></output></span></div>
-        <div class="row"><label for="selected-tension">表面张力</label><span class="slider-wrap"><input id="selected-tension" data-selected-prop="surfaceTension" type="range" min="15" max="40" step=".5"><output data-selected-output="surfaceTension"></output></span></div>
-        <div class="row"><label for="selected-damping">阻尼比</label><span class="slider-wrap"><input id="selected-damping" data-selected-prop="dampingRatio" type="range" min=".01" max=".5" step=".01"><output data-selected-output="dampingRatio"></output></span></div>
+        <div class="row" data-selected-mode="static"><label for="selected-radius">物理半径</label><span class="slider-wrap"><input id="selected-radius" data-selected-prop="physicalRadius" type="range" min="1" max="8" step=".1"><output data-selected-output="physicalRadius"></output></span></div>
+        <div class="row" data-selected-mode="static"><label for="selected-thickness">膜厚</label><span class="slider-wrap"><input id="selected-thickness" data-selected-prop="filmThickness" type="range" min="0" max="1200" step="1"><output data-selected-output="filmThickness"></output></span></div>
+        <div class="row" data-selected-mode="static"><label for="selected-flow-enabled">启用流动</label><input id="selected-flow-enabled" data-selected-prop="flowEnabled" type="checkbox"></div>
+        <div class="row" data-selected-mode="static"><label for="selected-flow-scale">流动尺度</label><span class="slider-wrap"><input id="selected-flow-scale" data-selected-prop="flowNoiseScale" type="range" min=".1" max="4" step=".05"><output data-selected-output="flowNoiseScale"></output></span></div>
+        <div class="row" data-selected-mode="static"><label for="selected-flow-speed">流动速度</label><span class="slider-wrap"><input id="selected-flow-speed" data-selected-prop="flowSpeed" type="range" min="0" max=".5" step=".01"><output data-selected-output="flowSpeed"></output></span></div>
+        <div class="row" data-selected-mode="static"><label for="selected-flow-amplitude">膜厚振幅</label><span class="slider-wrap"><input id="selected-flow-amplitude" data-selected-prop="flowAmplitude" type="range" min="0" max="600" step="5"><output data-selected-output="flowAmplitude"></output></span></div>
+        <div class="row" data-selected-mode="realtime"><label for="selected-tension">表面张力</label><span class="slider-wrap"><input id="selected-tension" data-selected-prop="surfaceTension" type="range" min="15" max="40" step=".5"><output data-selected-output="surfaceTension"></output></span></div>
+        <div class="row" data-selected-mode="realtime"><label for="selected-damping">阻尼比</label><span class="slider-wrap"><input id="selected-damping" data-selected-prop="dampingRatio" type="range" min=".01" max=".5" step=".01"><output data-selected-output="dampingRatio"></output></span></div>
       </div>
-      <div class="edit-actions">
+      <div class="edit-actions" id="multi-edit-actions">
         <button class="action" id="duplicate-selected" type="button">复制</button>
         <button class="action" id="shrink-selected" type="button">缩小</button>
         <button class="action" id="grow-selected" type="button">放大</button>
@@ -361,11 +422,11 @@
     </section>
 
     <section class="panel" data-panel="furnace" hidden>
-      <div class="row">
+      <div class="row developer-only">
         <label for="white-furnace">白炉测试</label>
         <input id="white-furnace" data-param="whiteFurnace" type="checkbox">
       </div>
-      <div class="row">
+      <div class="row developer-only">
         <label for="bubble-only">白底只显示泡泡</label>
         <input id="bubble-only" data-param="bubbleOnlyOutput" type="checkbox">
       </div>
@@ -375,7 +436,7 @@
       </div>
       <div class="row">
         <label for="dof-mode">景深模式</label>
-        <span class="slider-wrap"><input id="dof-mode" data-param="depthOfFieldMode" type="range" min="1" max="2" step="1" value="2" data-precision="0"><output data-output="depthOfFieldMode">2</output></span>
+        <span class="slider-wrap"><input id="dof-mode" data-param="depthOfFieldMode" type="range" min="0" max="2" step="2" value="2" data-precision="0"><output data-output="depthOfFieldMode">逐层</output></span>
       </div>
       <div class="row">
         <label for="dof-focus">焦点距离</label>
@@ -389,13 +450,13 @@
         <label for="dof-strength">景深强度</label>
         <span class="slider-wrap"><input id="dof-strength" data-param="depthOfFieldStrength" type="range" min="0" max="1" step=".01" value=".45"><output data-output="depthOfFieldStrength">0.45</output></span>
       </div>
-      <div class="switch-pair">
+      <div class="switch-pair developer-only">
         <span>背面</span><label for="back-t">透射</label>
         <input id="back-t" data-param="backTransmission" type="checkbox" checked>
         <label for="back-r">反射</label>
         <input id="back-r" data-param="backReflection" type="checkbox" checked>
       </div>
-      <div class="switch-pair">
+      <div class="switch-pair developer-only">
         <span>正面</span><label for="front-t">透射</label>
         <input id="front-t" data-param="frontTransmission" type="checkbox" checked>
         <label for="front-r">反射</label>
@@ -514,7 +575,7 @@
         <span class="slider-wrap"><input id="damping" data-param="dampingRatio" type="range" min=".01" max=".5" step=".01" value=".08"><output data-output="dampingRatio">0.08</output></span>
       </div>
       <p class="frequency">l=2 Rayleigh–Lamb 解析振荡 · 体积保持矩阵指数</p>
-      <div class="row">
+      <div class="row developer-only">
         <label for="single-preview">单泡泡预览</label>
         <input id="single-preview" data-param="singlePreview" type="checkbox" checked>
       </div>
@@ -523,10 +584,10 @@
     <section class="panel" data-panel="camera" hidden>
       <div class="row"><label for="camera-distance">相机距离</label><span class="slider-wrap"><input id="camera-distance" data-param="cameraDistance" type="range" min="20" max="120" step=".5" value="54" data-suffix=" m"><output data-output="cameraDistance">54.0 m</output></span></div>
       <div class="row"><label for="camera-fov">视场角</label><span class="slider-wrap"><input id="camera-fov" data-param="cameraFov" type="range" min="25" max="90" step="1" value="60" data-precision="0" data-suffix="°"><output data-output="cameraFov">60°</output></span></div>
-      <div class="row"><label for="blend-width">法线融合宽度</label><span class="slider-wrap"><input id="blend-width" data-param="normalBlendWidthScale" type="range" min="0" max=".15" step=".005" value=".055" data-precision="3"><output data-output="normalBlendWidthScale">0.055</output></span></div>
-      <div class="row"><label for="bubble-blend">泡泡法线融合</label><span class="slider-wrap"><input id="bubble-blend" data-param="bubbleNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".35"><output data-output="bubbleNormalBlendStrength">0.35</output></span></div>
-      <div class="row"><label for="film-blend">共享膜法线融合</label><span class="slider-wrap"><input id="film-blend" data-param="sharedFilmNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".55"><output data-output="sharedFilmNormalBlendStrength">0.55</output></span></div>
-      <div class="row"><label for="border-blend">边界法线融合</label><span class="slider-wrap"><input id="border-blend" data-param="plateauBorderNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".28"><output data-output="plateauBorderNormalBlendStrength">0.28</output></span></div>
+      <div class="row developer-only"><label for="blend-width">法线融合宽度</label><span class="slider-wrap"><input id="blend-width" data-param="normalBlendWidthScale" type="range" min="0" max=".15" step=".005" value=".055" data-precision="3"><output data-output="normalBlendWidthScale">0.055</output></span></div>
+      <div class="row developer-only"><label for="bubble-blend">泡泡法线融合</label><span class="slider-wrap"><input id="bubble-blend" data-param="bubbleNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".35"><output data-output="bubbleNormalBlendStrength">0.35</output></span></div>
+      <div class="row developer-only"><label for="film-blend">共享膜法线融合</label><span class="slider-wrap"><input id="film-blend" data-param="sharedFilmNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".55"><output data-output="sharedFilmNormalBlendStrength">0.55</output></span></div>
+      <div class="row developer-only"><label for="border-blend">边界法线融合</label><span class="slider-wrap"><input id="border-blend" data-param="plateauBorderNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".28"><output data-output="plateauBorderNormalBlendStrength">0.28</output></span></div>
     </section>
   </aside>
 
@@ -539,6 +600,6 @@
     </div>
   </section>
 
-  <script type="module" src="app.js?v=20260807-7"></script>
+  <script type="module" src="app.js?v=20260807-9"></script>
 </body>
 </html>

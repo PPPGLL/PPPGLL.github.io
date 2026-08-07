@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-7";
+} from "./math.js?v=20260807-9";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -18,6 +18,10 @@ const MAX_SPEED = 10;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function finiteArray(values, fallback = 0) {
+  return values.map((value) => Number.isFinite(value) ? value : fallback);
 }
 
 function capVolume(radius, height) {
@@ -210,19 +214,17 @@ export class BubbleSimulation {
       bubble.moving = this.params.workspaceMode === "realtime";
       if (!bubble.moving) bubble.velocity = [0, 0, 0];
     });
-    this.rebuildEditorOverlapBonds();
+    if (this.params.workspaceMode === "static") {
+      this.rebuildEditorOverlapBonds();
+    } else {
+      // Editor overlap bonds become ordinary live constraints after entering
+      // realtime mode and may stretch or break like native bonds.
+      this.bonds.forEach((bond) => { bond.editorGenerated = false; });
+    }
   }
 
   setToolMode(mode) {
     this.params.toolMode = mode === "browse" ? "browse" : "edit";
-    if (this.params.toolMode === "edit") {
-      this.params.workspaceMode = "static";
-      this.bubbles.forEach((bubble) => {
-        bubble.velocity = [0, 0, 0];
-        bubble.moving = false;
-      });
-      this.rebuildEditorOverlapBonds();
-    }
     this.interaction = this.createInteractionState();
     this.selectedIds = [];
   }
@@ -241,6 +243,10 @@ export class BubbleSimulation {
 
   getWorldRadius(bubble) {
     return bubble.physicalRadius * WORLD_UNITS_PER_METER * bubble.volumeScale;
+  }
+
+  getPhysicalWorldRadius(bubble) {
+    return bubble.physicalRadius * WORLD_UNITS_PER_METER;
   }
 
   calculateMass(bubble) {
@@ -359,26 +365,99 @@ export class BubbleSimulation {
       : (this.params.randomize
         ? minimum + Math.floor(this.nextRandom() * (maximum - minimum + 1))
         : 1);
-    const created = [];
-    for (let index = 0; index < count && this.bubbles.length < MAX_EDITOR_BUBBLES; index += 1) {
-      const bubble = this.createBubble(this.params.randomize);
-      const radius = this.getWorldRadius(bubble);
-      if (index === 0) {
-        bubble.position = v3.clone(center);
-      } else {
-        const angle = index * 2.39996323 + this.nextRandom() * .45;
-        const ring = Math.sqrt(index) * radius * 1.45;
-        const depth = (this.nextRandom() * 2 - 1) * radius * this.params.randomBubbleDepthScatterScale;
-        bubble.position = v3.add(center, v3.add(
-          v3.scale(camera.right, Math.cos(angle) * ring),
-          v3.add(v3.scale(camera.up, Math.sin(angle) * ring), v3.scale(camera.forward, depth))
-        ));
+    const targetCount = Math.min(count, MAX_EDITOR_BUBBLES - this.bubbles.length);
+    const created = Array.from({ length: targetCount }, () => this.createBubble(this.params.randomize));
+    const radii = created.map((bubble) => this.getPhysicalWorldRadius(bubble));
+    const remaining = created.map((_, index) => index);
+    for (let index = remaining.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.min(index, Math.floor(this.nextRandom() * (index + 1)));
+      [remaining[index], remaining[swapIndex]] = [remaining[swapIndex], remaining[index]];
+    }
+    const groups = [];
+    let clusteredRemaining = 0;
+    if (this.params.randomize && targetCount >= 2 && this.nextRandom() >= .15) {
+      clusteredRemaining = clamp(
+        Math.round((.55 + .2 * this.nextRandom()) * targetCount),
+        2,
+        targetCount
+      );
+    }
+    while (clusteredRemaining >= 2 && remaining.length >= 2) {
+      const roll = this.nextRandom();
+      let size = roll < .1 ? 2 : (roll < .55 ? 3 : 4);
+      size = Math.min(size, clusteredRemaining, remaining.length);
+      if (clusteredRemaining - size === 1 && size > 2) size -= 1;
+      if (size < 2) break;
+      groups.push(remaining.splice(0, size));
+      clusteredRemaining -= size;
+    }
+    while (remaining.length) groups.push([remaining.shift()]);
+
+    const depthScale = clamp(this.params.randomBubbleDepthScatterScale, 1, 4);
+    const placedGroups = [];
+    groups.forEach((indices, groupIndex) => {
+      const offsets = [[0, 0, 0]];
+      for (let member = 1; member < indices.length; member += 1) {
+        const bubbleIndex = indices[member];
+        let best = [0, 0, 0];
+        let bestClearance = -Infinity;
+        for (let attempt = 0; attempt < 32; attempt += 1) {
+          const anchorMember = Math.min(member - 1, Math.floor(this.nextRandom() * member));
+          const anchorIndex = indices[anchorMember];
+          const angle = 2 * PI * this.nextRandom();
+          const direction = v3.normalize([
+            Math.cos(angle),
+            Math.sin(angle),
+            (2 * this.nextRandom() - 1) * depthScale
+          ]);
+          const contact = radii[bubbleIndex] + radii[anchorIndex];
+          const candidate = v3.madd(
+            offsets[anchorMember],
+            direction,
+            contact * (.84 + .14 * this.nextRandom())
+          );
+          let clearance = Infinity;
+          for (let previous = 0; previous < member; previous += 1) {
+            const previousIndex = indices[previous];
+            const minimumDistance = .62 * (radii[bubbleIndex] + radii[previousIndex]);
+            clearance = Math.min(clearance, v3.distance(candidate, offsets[previous]) - minimumDistance);
+          }
+          if (clearance > bestClearance) {
+            best = candidate;
+            bestClearance = clearance;
+          }
+          if (clearance >= 0) break;
+        }
+        offsets.push(best);
       }
+      const localCenter = offsets.reduce((sum, offset) => v3.add(sum, offset), [0, 0, 0]);
+      const centered = offsets.map((offset) => v3.sub(offset, v3.scale(localCenter, 1 / offsets.length)));
+      const groupRadius = Math.max(...centered.map((offset, index) =>
+        v3.length(offset) + radii[indices[index]]));
+      const angle = groupIndex * 2.39996323 + this.nextRandom() * .35;
+      const ring = groupIndex === 0 ? 0 : Math.sqrt(groupIndex) *
+        (groupRadius + placedGroups.reduce((maximum, group) => Math.max(maximum, group.radius), 0)) * 1.12;
+      const groupCenter = v3.add(center, v3.add(
+        v3.scale(camera.right, Math.cos(angle) * ring),
+        v3.add(
+          v3.scale(camera.up, Math.sin(angle) * ring),
+          v3.scale(camera.forward, (2 * this.nextRandom() - 1) * groupRadius * depthScale)
+        )
+      ));
+      indices.forEach((bubbleIndex, member) => {
+        const offset = centered[member];
+        created[bubbleIndex].position = v3.add(groupCenter, v3.add(
+          v3.scale(camera.right, offset[0]),
+          v3.add(v3.scale(camera.up, offset[1]), v3.scale(camera.forward, offset[2]))
+        ));
+      });
+      placedGroups.push({ radius: groupRadius, center: groupCenter });
+    });
+    created.forEach((bubble) => {
       bubble.velocity = [0, 0, 0];
       bubble.moving = false;
       this.bubbles.push(bubble);
-      created.push(bubble);
-    }
+    });
     this.selectedIds = created.length ? [created.at(-1).id] : [];
     this.interaction.selectedId = this.selectedIds[0] ?? 0;
     this.rebuildEditorOverlapBonds();
@@ -497,6 +576,9 @@ export class BubbleSimulation {
       cameraYaw: this.cameraYaw,
       cameraPitch: this.cameraPitch,
       cameraTarget: [...this.cameraTarget],
+      nextBubbleId: this.nextBubbleId,
+      randomState: this.randomState,
+      elapsed: this.elapsed,
       bubbles: this.bubbles.map((bubble) => ({
         ...bubble,
         position: [...bubble.position],
@@ -513,12 +595,15 @@ export class BubbleSimulation {
     if (!snapshot || !Array.isArray(snapshot.bubbles) || !Array.isArray(snapshot.bonds)) return false;
     Object.assign(this.params, snapshot.params || {});
     delete this.params.showcaseMode;
-    if (this.params.toolMode === "edit") this.params.workspaceMode = "static";
     this.cameraYaw = Number(snapshot.cameraYaw) || 0;
     this.cameraPitch = clamp(Number(snapshot.cameraPitch) || 0, -85 * PI / 180, 85 * PI / 180);
     this.cameraTarget = Array.isArray(snapshot.cameraTarget) && snapshot.cameraTarget.length === 3
       ? snapshot.cameraTarget.map((value) => Number(value) || 0)
       : [0, 0, 0];
+    this.randomState = Number.isFinite(snapshot.randomState)
+      ? (Number(snapshot.randomState) >>> 0)
+      : 0x6d2b79f5;
+    this.elapsed = Number.isFinite(snapshot.elapsed) ? Math.max(0, Number(snapshot.elapsed)) : 0;
     this.bubbles = snapshot.bubbles.slice(0, MAX_EDITOR_BUBBLES).map((bubble) => ({
       ...bubble,
       position: [...bubble.position],
@@ -535,7 +620,10 @@ export class BubbleSimulation {
     }
     const validIds = new Set(this.bubbles.map((bubble) => bubble.id));
     this.bonds = snapshot.bonds.filter((bond) => validIds.has(bond.firstId) && validIds.has(bond.secondId));
-    this.nextBubbleId = Math.max(0, ...validIds) + 1;
+    this.nextBubbleId = Math.max(
+      Math.max(0, ...validIds) + 1,
+      Number.isFinite(snapshot.nextBubbleId) ? Math.floor(snapshot.nextBubbleId) : 1
+    );
     this.interaction = this.createInteractionState();
     this.selectedIds = [];
     this.rebuildConnectionGeometry();
@@ -589,8 +677,8 @@ export class BubbleSimulation {
   }
 
   bondRestDistance(first, second) {
-    const r1 = this.getWorldRadius(first);
-    const r2 = this.getWorldRadius(second);
+    const r1 = this.getPhysicalWorldRadius(first);
+    const r2 = this.getPhysicalWorldRadius(second);
     const wetness = this.params.wetness;
     return Math.sqrt(Math.max(
       r1 * r1 + r2 * r2 + (3 * wetness - 1) * r1 * r2,
@@ -648,12 +736,13 @@ export class BubbleSimulation {
   }
 
   containerBounds(aspect) {
-    const distance = 54;
-    const halfVertical = 30 * PI / 180;
+    const distance = this.params.cameraDistance;
+    const halfVertical = .5 * this.params.cameraFov * PI / 180;
     const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
     const maximumPhysicalRadius = Math.max(
       this.params.radiusCentimeters * .01,
-      this.params.randomize ? .06 : 0
+      this.params.randomize ? .06 : 0,
+      ...this.bubbles.map((bubble) => bubble.physicalRadius)
     ) * WORLD_UNITS_PER_METER;
     const radius = Math.max(.9 * distance * Math.sin(halfHorizontal), 1.5 * maximumPhysicalRadius);
     // The original phone app used a portrait viewport. On a landscape web
@@ -674,7 +763,7 @@ export class BubbleSimulation {
     const delta = v3.sub(second.position, first.position);
     const distance = v3.length(delta);
     const normal = distance > 1e-6 ? v3.scale(delta, 1 / distance) : deterministicNormal(firstIndex, secondIndex);
-    const collisionDistance = this.getWorldRadius(first) + this.getWorldRadius(second);
+    const collisionDistance = this.getPhysicalWorldRadius(first) + this.getPhysicalWorldRadius(second);
     if (distance >= collisionDistance) return;
     const firstInverseMass = 1 / this.calculateMass(first);
     const secondInverseMass = 1 / this.calculateMass(second);
@@ -693,9 +782,11 @@ export class BubbleSimulation {
     const impulse = v3.scale(normal, impulseMagnitude);
     first.velocity = v3.madd(first.velocity, impulse, -firstInverseMass);
     second.velocity = v3.madd(second.velocity, impulse, secondInverseMass);
-    if (firstIteration) {
+    if (firstIteration && impactSpeed >= .25) {
       this.exciteQuadrupole(first, normal, impactSpeed);
       this.exciteQuadrupole(second, v3.scale(normal, -1), impactSpeed);
+    }
+    if (firstIteration) {
       if (impactSpeed > .75) {
         const normalizedImpact = (impactSpeed - .75) / 2.5;
         const probability = 1 - Math.exp(-normalizedImpact * normalizedImpact);
@@ -720,7 +811,10 @@ export class BubbleSimulation {
     const safeDeltaTime = Math.max(deltaTime, 1 / 240);
     const compliance = 1e-5 / (safeDeltaTime * safeDeltaTime);
     const constraint = distance - bond.restDistance;
-    const minimumRadius = Math.min(this.getWorldRadius(first), this.getWorldRadius(second));
+    const minimumRadius = Math.min(
+      this.getPhysicalWorldRadius(first),
+      this.getPhysicalWorldRadius(second)
+    );
     const deltaLambda = clamp(
       (-constraint - compliance * bond.constraintLambda) / (1 + compliance),
       -.15 * minimumRadius,
@@ -737,7 +831,7 @@ export class BubbleSimulation {
 
   solveContainer(bubble, aspect, firstIteration) {
     const bounds = this.containerBounds(aspect);
-    const radius = this.getWorldRadius(bubble);
+    const radius = this.getPhysicalWorldRadius(bubble);
     const radial = [bubble.position[0], 0, bubble.position[2]];
     const radialLength = v3.length(radial);
     const maximumRadial = Math.max(bounds.radius - radius, 0);
@@ -812,16 +906,20 @@ export class BubbleSimulation {
       if (!first || !second) return false;
       bond.age += dt;
       bond.constraintLambda = 0;
-      if (bond.editorGenerated || this.params.toolMode === "edit") return true;
+      if (bond.editorGenerated) return true;
       if (bond.age <= .08) return true;
       const distance = v3.distance(first.position, second.position);
-      const minimumRadius = Math.min(this.getWorldRadius(first), this.getWorldRadius(second));
+      const minimumRadius = Math.min(
+        this.getPhysicalWorldRadius(first),
+        this.getPhysicalWorldRadius(second)
+      );
       const relativeSpeed = v3.length(v3.sub(second.velocity, first.velocity));
       return distance <= bond.restDistance + .45 * minimumRadius && relativeSpeed <= bond.breakSpeed;
     });
 
     this.applyDrag(dt);
     this.bubbles.forEach((bubble) => {
+      if (!bubble.moving || bubble.popped) return;
       const radius = bubble.physicalRadius;
       const realtimeEditing = this.params.toolMode === "edit";
       const ambientVelocity = this.params.ambientAirflow && !realtimeEditing
@@ -843,11 +941,15 @@ export class BubbleSimulation {
       bubble.position = v3.madd(bubble.position, bubble.velocity, WORLD_UNITS_PER_METER * dt);
       const targetScale = this.countBonds(bubble.id) > 0 ? .35 : 1;
       const target = m3.scale(this.calculateAerodynamicQuadrupole(
-        bubble.velocity,
+        relativeVelocity,
         bubble.physicalRadius,
         bubble.surfaceTension
       ), targetScale);
       this.integrateQuadrupole(bubble, target, dt);
+      bubble.position = finiteArray(bubble.position);
+      bubble.velocity = finiteArray(bubble.velocity);
+      bubble.quadrupole = finiteArray(bubble.quadrupole);
+      bubble.quadrupoleVelocity = finiteArray(bubble.quadrupoleVelocity);
     });
     this.interaction.targetVelocity = v3.scale(
       this.interaction.targetVelocity,
@@ -910,7 +1012,30 @@ export class BubbleSimulation {
       const removedFraction = clamp(removedVolume / Math.max(sphereVolume, 1e-8), 0, .45);
       bubble.volumeScale = Math.cbrt(1 / (1 - removedFraction));
     });
-    this.bonds.forEach((bond) => this.calculateBondGeometry(bond, true));
+    const geometryByBond = new Map();
+    this.bonds.forEach((bond) => {
+      const geometry = this.calculateBondGeometry(bond, true);
+      bond.connectionClipPlanes = [];
+      if (geometry) geometryByBond.set(bond, geometry);
+    });
+    this.bonds.forEach((bond) => {
+      const planes = bond.connectionClipPlanes;
+      [bond.firstId, bond.secondId].forEach((bubbleId) => {
+        this.bonds.forEach((otherBond) => {
+          if (otherBond === bond || planes.length >= 16) return;
+          const usesFirst = otherBond.firstId === bubbleId;
+          const usesSecond = otherBond.secondId === bubbleId;
+          if (!usesFirst && !usesSecond) return;
+          const other = geometryByBond.get(otherBond);
+          if (!other) return;
+          const normal = usesFirst ? other.normal : v3.scale(other.normal, -1);
+          planes.push([
+            normal[0], normal[1], normal[2],
+            -v3.dot(normal, other.center) - .01
+          ]);
+        });
+      });
+    });
   }
 
   calculateBondGeometry(bond, updateClipPlanes = false) {
@@ -968,7 +1093,8 @@ export class BubbleSimulation {
       flowEnabled: first.flowEnabled || second.flowEnabled,
       flowNoiseScale: .5 * (first.flowNoiseScale + second.flowNoiseScale),
       flowSpeed: .5 * (first.flowSpeed + second.flowSpeed),
-      flowAmplitude: .5 * (first.flowAmplitude + second.flowAmplitude)
+      flowAmplitude: .5 * (first.flowAmplitude + second.flowAmplitude),
+      clipPlanes: bond.connectionClipPlanes || []
     };
     if (updateClipPlanes) {
       // The body and Plateau ring are composited in separate WebGL targets.
@@ -979,7 +1105,7 @@ export class BubbleSimulation {
       const x2Outer = Math.sign(x2 || 1) * Math.sqrt(Math.max(r2 * r2 - outerRadius * outerRadius, 0));
       const firstOffset = x - x1Outer;
       const secondOffset = x2 - x2Outer;
-      if (first.clipPlanes.length < 6) {
+      if (first.clipPlanes.length < 16) {
         // Match the native plane exactly:
         // dot(n, p - sharedCenter) + firstClearance > 0 is clipped.
         // The previous port incorrectly measured firstClearance from the
@@ -991,7 +1117,7 @@ export class BubbleSimulation {
           -v3.dot(normal, center) + firstOffset
         ]);
       }
-      if (second.clipPlanes.length < 6) {
+      if (second.clipPlanes.length < 16) {
         const inverseNormal = v3.scale(normal, -1);
         second.clipPlanes.push([
           inverseNormal[0],
