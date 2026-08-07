@@ -161,6 +161,7 @@
       gap: 2px;
       margin-top: 4px;
     }
+    .top-actions { grid-template-columns: repeat(3, 1fr); }
     .edit-actions .action { min-height: 25px; padding: 0 4px; font-size: 10px; }
     .mode-button { min-height: 24px; }
     .panel {
@@ -211,7 +212,7 @@
     .switch-pair input { width: 30px; height: 17px; }
     .environments {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: 1fr;
       gap: 5px;
       margin-top: 6px;
     }
@@ -238,8 +239,7 @@
       border-radius: 2px;
       background: linear-gradient(135deg, #1f3851, #7ca6a5 48%, #d5c99e);
     }
-    .environment:nth-child(2)::before { background: linear-gradient(135deg, #22331e, #779063 45%, #d4c9a0); }
-    .environment:nth-child(3)::before { background: linear-gradient(135deg, #75b4db, #bad6c6 52%, #e3d49e); }
+    .environment::before { background: linear-gradient(135deg, #75b4db, #bad6c6 52%, #e3d49e); }
     .environment span {
       display: block;
       padding: 3px 0 1px;
@@ -273,6 +273,31 @@
       font-size: 10px;
       line-height: 1.5;
     }
+    .selection-box {
+      position: fixed;
+      z-index: 3;
+      display: none;
+      pointer-events: none;
+      border: 1px solid #7cb4ff;
+      background: rgba(60, 130, 246, .16);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.14) inset;
+    }
+    .selection-box.active { display: block; }
+    .selected-panel {
+      margin-top: 6px;
+      padding: 7px 5px;
+      border: 1px solid rgba(110,168,255,.42);
+      border-radius: 6px;
+      background: rgba(30,70,125,.18);
+    }
+    .selected-panel[hidden], .selected-properties[hidden] { display: none; }
+    .selected-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 3px;
+      color: #d8e8ff;
+    }
     .error {
       position: fixed;
       z-index: 20;
@@ -305,10 +330,11 @@
 </head>
 <body>
   <canvas id="scene" aria-label="WebGL2 实时泡泡渲染画面"></canvas>
+  <div class="selection-box" id="selection-box" aria-hidden="true"></div>
 
   <div class="topbar">
     <span class="status" id="loading-label">正在初始化 HDR</span>
-    <span class="status" id="counts">单泡泡预览</span>
+    <span class="status" id="counts">静态 · 0 泡泡 · 0 连接</span>
     <span class="status" id="fps">0.0 FPS</span>
     <a class="back-link" href="../#projects">返回主页</a>
   </div>
@@ -335,12 +361,33 @@
       <button id="tool-browse" class="mode-button" type="button">浏览</button>
       <button id="tool-edit" class="mode-button active" type="button">编辑</button>
     </div>
-    <div class="edit-actions">
-      <button class="action" id="add-bubbles" type="button">生成泡泡</button>
+    <div class="edit-actions top-actions">
+      <button class="action" id="add-bubbles" type="button">放置单泡</button>
+      <button class="action primary" id="random-place" type="button">随机多泡</button>
       <button class="action" id="snapshot-save" type="button">保存场景</button>
       <button class="action" id="snapshot-load" type="button">读取场景</button>
       <button class="action" id="clear-top" type="button">清空</button>
     </div>
+
+    <section class="selected-panel" id="selected-panel" hidden>
+      <div class="selected-heading"><strong id="selected-heading">选中泡泡</strong><span id="selected-count">1 个</span></div>
+      <div class="selected-properties" id="selected-properties">
+        <div class="row"><label for="selected-radius">物理半径</label><span class="slider-wrap"><input id="selected-radius" data-selected-prop="physicalRadius" type="range" min="1" max="8" step=".1"><output data-selected-output="physicalRadius"></output></span></div>
+        <div class="row"><label for="selected-thickness">膜厚</label><span class="slider-wrap"><input id="selected-thickness" data-selected-prop="filmThickness" type="range" min="0" max="1200" step="1"><output data-selected-output="filmThickness"></output></span></div>
+        <div class="row"><label for="selected-flow-enabled">启用流动</label><input id="selected-flow-enabled" data-selected-prop="flowEnabled" type="checkbox"></div>
+        <div class="row"><label for="selected-flow-scale">流动尺度</label><span class="slider-wrap"><input id="selected-flow-scale" data-selected-prop="flowNoiseScale" type="range" min=".1" max="4" step=".05"><output data-selected-output="flowNoiseScale"></output></span></div>
+        <div class="row"><label for="selected-flow-speed">流动速度</label><span class="slider-wrap"><input id="selected-flow-speed" data-selected-prop="flowSpeed" type="range" min="0" max=".5" step=".01"><output data-selected-output="flowSpeed"></output></span></div>
+        <div class="row"><label for="selected-flow-amplitude">膜厚振幅</label><span class="slider-wrap"><input id="selected-flow-amplitude" data-selected-prop="flowAmplitude" type="range" min="0" max="600" step="5"><output data-selected-output="flowAmplitude"></output></span></div>
+        <div class="row"><label for="selected-tension">表面张力</label><span class="slider-wrap"><input id="selected-tension" data-selected-prop="surfaceTension" type="range" min="15" max="40" step=".5"><output data-selected-output="surfaceTension"></output></span></div>
+        <div class="row"><label for="selected-damping">阻尼比</label><span class="slider-wrap"><input id="selected-damping" data-selected-prop="dampingRatio" type="range" min=".01" max=".5" step=".01"><output data-selected-output="dampingRatio"></output></span></div>
+      </div>
+      <div class="edit-actions">
+        <button class="action" id="duplicate-selected" type="button">复制</button>
+        <button class="action" id="shrink-selected" type="button">缩小</button>
+        <button class="action" id="grow-selected" type="button">放大</button>
+        <button class="action" id="delete-selected" type="button">删除</button>
+      </div>
+    </section>
 
     <section class="panel" data-panel="environment">
       <div class="row">
@@ -349,16 +396,11 @@
       </div>
       <div class="environments" aria-label="HDR 环境图">
         <button class="environment active" data-environment="0" type="button" aria-pressed="true">
-          <span>瀑布</span>
-        </button>
-        <button class="environment" data-environment="1" type="button" aria-pressed="false">
-          <span>高尔夫球场</span>
-        </button>
-        <button class="environment" data-environment="2" type="button" aria-pressed="false">
           <span>冯德尔公园</span>
         </button>
       </div>
-      <p class="note">最新版原工程的 3 张 4K 线性 HDR。静态编辑可点击空白处生成泡泡，编辑模式可拖拽泡泡。</p>
+      <div class="row"><label for="resolution-scale">3D 渲染比例</label><span class="slider-wrap"><input id="resolution-scale" data-param="renderResolutionScale" type="range" min=".5" max="1" step=".05" value="1"><output data-output="renderResolutionScale">1.00</output></span></div>
+      <p class="note">仅保留最新版公园 4K HDR。静态编辑下双击空白处放置泡泡；长按空白 250ms 后拖动可框选多个泡泡。</p>
     </section>
 
     <section class="panel" data-panel="furnace" hidden>
@@ -523,18 +565,11 @@
         <input id="single-preview" data-param="singlePreview" type="checkbox" checked>
       </div>
       <p class="note">互动模式：拖拽泡泡、空白滑动施加气流/切断连接、双击泡泡使其爆裂。</p>
-      <div class="edit-actions">
-        <button class="action" id="duplicate-selected" type="button">复制</button>
-        <button class="action" id="shrink-selected" type="button">缩小</button>
-        <button class="action" id="grow-selected" type="button">放大</button>
-        <button class="action" id="delete-selected" type="button">删除</button>
-      </div>
     </section>
 
     <section class="panel" data-panel="camera" hidden>
       <div class="row"><label for="camera-distance">相机距离</label><span class="slider-wrap"><input id="camera-distance" data-param="cameraDistance" type="range" min="20" max="120" step=".5" value="54" data-suffix=" m"><output data-output="cameraDistance">54.0 m</output></span></div>
       <div class="row"><label for="camera-fov">视场角</label><span class="slider-wrap"><input id="camera-fov" data-param="cameraFov" type="range" min="25" max="90" step="1" value="60" data-precision="0" data-suffix="°"><output data-output="cameraFov">60°</output></span></div>
-      <div class="row"><label for="resolution-scale">渲染分辨率</label><span class="slider-wrap"><input id="resolution-scale" data-param="renderResolutionScale" type="range" min=".5" max="1" step=".05" value="1"><output data-output="renderResolutionScale">1.00</output></span></div>
       <div class="row"><label for="blend-width">法线融合宽度</label><span class="slider-wrap"><input id="blend-width" data-param="normalBlendWidthScale" type="range" min="0" max=".15" step=".005" value=".055" data-precision="3"><output data-output="normalBlendWidthScale">0.055</output></span></div>
       <div class="row"><label for="bubble-blend">泡泡法线融合</label><span class="slider-wrap"><input id="bubble-blend" data-param="bubbleNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".35"><output data-output="bubbleNormalBlendStrength">0.35</output></span></div>
       <div class="row"><label for="film-blend">共享膜法线融合</label><span class="slider-wrap"><input id="film-blend" data-param="sharedFilmNormalBlendStrength" type="range" min="0" max="1" step=".01" value=".55"><output data-output="sharedFilmNormalBlendStrength">0.55</output></span></div>

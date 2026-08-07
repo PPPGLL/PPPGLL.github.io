@@ -94,6 +94,7 @@ export class BubbleSimulation {
     this.elapsed = 0;
     this.fps = 0;
     this.interaction = this.createInteractionState();
+    this.selectedIds = [];
     this.previewBubble = this.createBubble(false);
     this.previewBubble.position = [0, 0, 0];
     this.previewBubble.velocity = [0, this.params.motionSpeed, 0];
@@ -114,7 +115,10 @@ export class BubbleSimulation {
       lastClickTime: -10,
       bondCandidateId: 0,
       bondCandidateTime: 0,
-      emptyGesture: false
+      emptyGesture: false,
+      grabOffset: [0, 0, 0],
+      groupDragIds: [],
+      groupDragOffsets: []
     };
   }
 
@@ -201,6 +205,7 @@ export class BubbleSimulation {
     this.params.workspaceMode = mode === "realtime" ? "realtime" : "static";
     this.params.interactionMode = true;
     this.interaction = this.createInteractionState();
+    this.selectedIds = [];
     this.bubbles.forEach((bubble) => {
       bubble.moving = this.params.workspaceMode === "realtime";
       if (!bubble.moving) bubble.velocity = [0, 0, 0];
@@ -211,6 +216,7 @@ export class BubbleSimulation {
   setToolMode(mode) {
     this.params.toolMode = mode === "browse" ? "browse" : "edit";
     this.interaction = this.createInteractionState();
+    this.selectedIds = [];
   }
 
   setShowcaseMode(enabled) {
@@ -337,6 +343,7 @@ export class BubbleSimulation {
     this.bubbles.length = 0;
     this.bonds.length = 0;
     this.interaction = this.createInteractionState();
+    this.selectedIds = [];
   }
 
   addBubblesAtRay(ray, camera, requestedCount = 0) {
@@ -370,43 +377,113 @@ export class BubbleSimulation {
       this.bubbles.push(bubble);
       created.push(bubble);
     }
-    this.interaction.selectedId = created.at(-1)?.id ?? 0;
+    this.selectedIds = created.length ? [created.at(-1).id] : [];
+    this.interaction.selectedId = this.selectedIds[0] ?? 0;
     this.rebuildEditorOverlapBonds();
     return created.length;
   }
 
   deleteSelected() {
-    const id = this.interaction.selectedId;
-    if (!id) return false;
-    this.bubbles = this.bubbles.filter((bubble) => bubble.id !== id);
-    this.bonds = this.bonds.filter((bond) => bond.firstId !== id && bond.secondId !== id);
+    const ids = new Set(this.selectedIds);
+    if (!ids.size) return false;
+    this.bubbles = this.bubbles.filter((bubble) => !ids.has(bubble.id));
+    this.bonds = this.bonds.filter((bond) => !ids.has(bond.firstId) && !ids.has(bond.secondId));
+    this.selectedIds = [];
     this.interaction.selectedId = 0;
     this.rebuildConnectionGeometry();
     return true;
   }
 
   duplicateSelected() {
-    const source = this.findBubble(this.interaction.selectedId);
-    if (!source || this.bubbles.length >= MAX_EDITOR_BUBBLES) return false;
-    const copy = {
-      ...source,
-      id: this.nextBubbleId++,
-      position: v3.add(source.position, [this.getWorldRadius(source) * .7, this.getWorldRadius(source) * .7, 0]),
-      velocity: [0, 0, 0],
-      quadrupole: [...source.quadrupole],
-      quadrupoleVelocity: m3.zero(),
-      clipPlanes: []
-    };
-    this.bubbles.push(copy);
-    this.interaction.selectedId = copy.id;
+    const sources = this.selectedIds.map((id) => this.findBubble(id)).filter(Boolean);
+    if (!sources.length || this.bubbles.length >= MAX_EDITOR_BUBBLES) return false;
+    const copies = [];
+    const maximumRadius = Math.max(...sources.map((bubble) => this.getWorldRadius(bubble)));
+    const offset = [maximumRadius * .9, maximumRadius * .9, 0];
+    sources.slice(0, MAX_EDITOR_BUBBLES - this.bubbles.length).forEach((source) => {
+      const copy = {
+        ...source,
+        id: this.nextBubbleId++,
+        position: v3.add(source.position, offset),
+        velocity: [0, 0, 0],
+        quadrupole: [...source.quadrupole],
+        quadrupoleVelocity: m3.zero(),
+        clipPlanes: []
+      };
+      this.bubbles.push(copy);
+      copies.push(copy.id);
+    });
+    this.selectedIds = copies;
+    this.interaction.selectedId = copies[0] ?? 0;
     this.rebuildEditorOverlapBonds();
     return true;
   }
 
   scaleSelected(factor) {
-    const bubble = this.findBubble(this.interaction.selectedId);
-    if (!bubble) return false;
-    bubble.physicalRadius = clamp(bubble.physicalRadius * factor, .01, .08);
+    const selected = this.selectedIds.map((id) => this.findBubble(id)).filter(Boolean);
+    if (!selected.length) return false;
+    selected.forEach((bubble) => {
+      bubble.physicalRadius = clamp(bubble.physicalRadius * factor, .01, .08);
+    });
+    this.rebuildEditorOverlapBonds();
+    return true;
+  }
+
+  setSelection(ids, primaryId = 0) {
+    const valid = new Set(this.bubbles.map((bubble) => bubble.id));
+    this.selectedIds = [...new Set(ids)].filter((id) => valid.has(id));
+    this.interaction.selectedId = this.selectedIds.includes(primaryId)
+      ? primaryId
+      : (this.selectedIds[0] ?? 0);
+    return this.selectedIds.length;
+  }
+
+  clearSelection() {
+    this.selectedIds = [];
+    this.interaction.selectedId = 0;
+  }
+
+  selectedBubbles() {
+    return this.selectedIds.map((id) => this.findBubble(id)).filter(Boolean);
+  }
+
+  selectBubblesInScreenRect(start, end, camera, viewport) {
+    const minimumX = Math.min(start[0], end[0]);
+    const maximumX = Math.max(start[0], end[0]);
+    const minimumY = Math.min(start[1], end[1]);
+    const maximumY = Math.max(start[1], end[1]);
+    const selected = [];
+    this.bubbles.forEach((bubble) => {
+      const center = this.projectToScreen(bubble.position, camera, viewport);
+      if (!center) return;
+      const radius = this.getWorldRadius(bubble);
+      const right = this.projectToScreen(v3.madd(bubble.position, camera.right, radius), camera, viewport);
+      const up = this.projectToScreen(v3.madd(bubble.position, camera.up, radius), camera, viewport);
+      const screenRadius = Math.max(
+        right ? Math.hypot(right[0] - center[0], right[1] - center[1]) : 0,
+        up ? Math.hypot(up[0] - center[0], up[1] - center[1]) : 0,
+        8
+      );
+      if (
+        center[0] + screenRadius >= minimumX && center[0] - screenRadius <= maximumX &&
+        center[1] + screenRadius >= minimumY && center[1] - screenRadius <= maximumY
+      ) selected.push(bubble.id);
+    });
+    return this.setSelection(selected, selected[0] ?? 0);
+  }
+
+  updateSelectedProperties(patch) {
+    const selected = this.selectedBubbles();
+    if (selected.length !== 1) return false;
+    const bubble = selected[0];
+    if (patch.physicalRadius !== undefined) bubble.physicalRadius = clamp(patch.physicalRadius, .01, .08);
+    if (patch.filmThickness !== undefined) bubble.filmThickness = clamp(patch.filmThickness, 0, 1200);
+    if (patch.surfaceTension !== undefined) bubble.surfaceTension = clamp(patch.surfaceTension, .015, .04);
+    if (patch.dampingRatio !== undefined) bubble.dampingRatio = clamp(patch.dampingRatio, .01, .5);
+    if (patch.flowEnabled !== undefined) bubble.flowEnabled = Boolean(patch.flowEnabled);
+    if (patch.flowNoiseScale !== undefined) bubble.flowNoiseScale = clamp(patch.flowNoiseScale, .1, 4);
+    if (patch.flowSpeed !== undefined) bubble.flowSpeed = clamp(patch.flowSpeed, 0, .5);
+    if (patch.flowAmplitude !== undefined) bubble.flowAmplitude = clamp(patch.flowAmplitude, 0, 600);
     this.rebuildEditorOverlapBonds();
     return true;
   }
@@ -444,6 +521,7 @@ export class BubbleSimulation {
     this.bonds = snapshot.bonds.filter((bond) => validIds.has(bond.firstId) && validIds.has(bond.secondId));
     this.nextBubbleId = Math.max(0, ...validIds) + 1;
     this.interaction = this.createInteractionState();
+    this.selectedIds = [];
     this.rebuildConnectionGeometry();
     return true;
   }
@@ -958,12 +1036,19 @@ export class BubbleSimulation {
     }
     this.interaction.lastClickId = bubble.id;
     this.interaction.lastClickTime = timestamp;
-    this.interaction.selectedId = bubble.id;
+    if (!this.selectedIds.includes(bubble.id)) this.setSelection([bubble.id], bubble.id);
+    else this.interaction.selectedId = bubble.id;
     this.interaction.dragPlanePoint = v3.clone(bubble.position);
     this.interaction.dragPlaneNormal = v3.clone(camera.forward);
-    const target = intersectRayPlane(ray, bubble.position, camera.forward) || bubble.position;
+    const planeTarget = intersectRayPlane(ray, bubble.position, camera.forward) || bubble.position;
+    const grabOffset = v3.sub(bubble.position, planeTarget);
+    this.interaction.grabOffset = grabOffset;
+    const target = v3.add(planeTarget, grabOffset);
     this.interaction.targetPosition = v3.clone(target);
     this.interaction.previousTarget = v3.clone(target);
+    this.interaction.groupDragIds = [...this.selectedIds];
+    this.interaction.groupDragOffsets = this.selectedBubbles().map((selected) =>
+      v3.sub(selected.position, bubble.position));
     this.interaction.targetVelocity = v3.clone(bubble.velocity);
     this.interaction.emptyGesture = false;
     return true;
@@ -975,12 +1060,13 @@ export class BubbleSimulation {
     const eventDelta = clamp(timestamp - this.interaction.lastEventTime, 1 / 240, .05);
     this.interaction.movedPixels += Math.hypot(screen[0] - previousScreen[0], screen[1] - previousScreen[1]);
     if (this.interaction.selectedId) {
-      const target = intersectRayPlane(
+      const planeTarget = intersectRayPlane(
         ray,
         this.interaction.dragPlanePoint,
         this.interaction.dragPlaneNormal
       );
-      if (target) {
+      if (planeTarget) {
+        const target = v3.add(planeTarget, this.interaction.grabOffset);
         const rawVelocity = v3.clampLength(v3.scale(
           v3.sub(target, this.interaction.previousTarget),
           1 / (WORLD_UNITS_PER_METER * eventDelta)
@@ -992,12 +1078,13 @@ export class BubbleSimulation {
         this.interaction.previousTarget = v3.clone(target);
         this.interaction.targetPosition = target;
         if (this.params.workspaceMode === "static") {
-          const bubble = this.findBubble(this.interaction.selectedId);
-          if (bubble) {
-            bubble.position = v3.clone(target);
+          this.interaction.groupDragIds.forEach((id, index) => {
+            const bubble = this.findBubble(id);
+            if (!bubble) return;
+            bubble.position = v3.add(target, this.interaction.groupDragOffsets[index] || [0, 0, 0]);
             bubble.velocity = [0, 0, 0];
-            this.rebuildEditorOverlapBonds();
-          }
+          });
+          this.rebuildEditorOverlapBonds();
         }
       }
     } else {
@@ -1015,7 +1102,10 @@ export class BubbleSimulation {
         v3.scale(this.interaction.targetVelocity, .35)
       ), MAX_SPEED);
     }
-    if (this.params.workspaceMode !== "static") this.interaction.selectedId = 0;
+    if (this.params.workspaceMode !== "static") {
+      this.interaction.selectedId = 0;
+      this.selectedIds = [];
+    }
     this.interaction.previousScreen = null;
     this.interaction.bondCandidateId = 0;
     this.interaction.bondCandidateTime = 0;

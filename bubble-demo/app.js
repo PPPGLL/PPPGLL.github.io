@@ -102,6 +102,7 @@ function updateModeButtons() {
   editButton.classList.toggle("active", simulation.params.toolMode === "edit");
   const previewInput = document.querySelector('[data-param="singlePreview"]');
   previewInput.checked = simulation.params.singlePreview;
+  updateSelectionPanel();
 }
 
 staticButton.addEventListener("click", () => {
@@ -125,10 +126,8 @@ editButton.addEventListener("click", () => {
 });
 
 const environmentButtons = [...document.querySelectorAll("[data-environment]")];
-let selectedEnvironment = 0;
 
 function selectEnvironment(index) {
-  selectedEnvironment = index;
   environmentButtons.forEach((button, buttonIndex) => {
     button.classList.toggle("active", buttonIndex === index);
     button.setAttribute("aria-pressed", String(buttonIndex === index));
@@ -140,13 +139,10 @@ environmentButtons.forEach((button, index) => {
   button.addEventListener("click", () => selectEnvironment(index));
 });
 
-let showcaseEnvironmentTimer = 0;
 let showcaseLaunchTimer = 0;
 
 function stopShowcaseTimers() {
-  clearInterval(showcaseEnvironmentTimer);
   clearInterval(showcaseLaunchTimer);
-  showcaseEnvironmentTimer = 0;
   showcaseLaunchTimer = 0;
 }
 
@@ -160,9 +156,6 @@ document.querySelector("#showcase").addEventListener("change", (event) => {
   simulation.params.singlePreview = false;
   document.querySelector('[data-param="singlePreview"]').checked = false;
   simulation.launchBubble();
-  showcaseEnvironmentTimer = window.setInterval(() => {
-    selectEnvironment((selectedEnvironment + 1) % environmentButtons.length);
-  }, 1500);
   showcaseLaunchTimer = window.setInterval(() => simulation.launchBubble(), 66);
 });
 
@@ -203,8 +196,14 @@ launchButton.addEventListener("pointercancel", stopLaunching);
 launchButton.addEventListener("lostpointercapture", stopLaunching);
 window.addEventListener("blur", stopLaunching);
 
-document.querySelector("#clear").addEventListener("click", () => simulation.clear());
-document.querySelector("#clear-top").addEventListener("click", () => simulation.clear());
+document.querySelector("#clear").addEventListener("click", () => {
+  simulation.clear();
+  updateSelectionPanel();
+});
+document.querySelector("#clear-top").addEventListener("click", () => {
+  simulation.clear();
+  updateSelectionPanel();
+});
 
 function centerRay() {
   const rect = canvas.getBoundingClientRect();
@@ -217,12 +216,83 @@ document.querySelector("#add-bubbles").addEventListener("click", () => {
     simulation.setToolMode("edit");
     updateModeButtons();
   }
-  simulation.addBubblesAtRay(centerRay(), camera, 0);
+  simulation.addBubblesAtRay(centerRay(), camera, 1);
+  updateSelectionPanel();
 });
-document.querySelector("#duplicate-selected").addEventListener("click", () => simulation.duplicateSelected());
-document.querySelector("#shrink-selected").addEventListener("click", () => simulation.scaleSelected(.9));
-document.querySelector("#grow-selected").addEventListener("click", () => simulation.scaleSelected(1.1));
-document.querySelector("#delete-selected").addEventListener("click", () => simulation.deleteSelected());
+document.querySelector("#random-place").addEventListener("click", () => {
+  if (simulation.params.workspaceMode !== "static") {
+    simulation.setWorkspaceMode("static");
+    simulation.setToolMode("edit");
+    updateModeButtons();
+  }
+  const previousRandomize = simulation.params.randomize;
+  simulation.params.randomize = true;
+  simulation.addBubblesAtRay(centerRay(), camera, 0);
+  simulation.params.randomize = previousRandomize;
+  updateSelectionPanel();
+});
+document.querySelector("#duplicate-selected").addEventListener("click", () => {
+  simulation.duplicateSelected();
+  updateSelectionPanel();
+});
+document.querySelector("#shrink-selected").addEventListener("click", () => {
+  simulation.scaleSelected(.9);
+  updateSelectionPanel();
+});
+document.querySelector("#grow-selected").addEventListener("click", () => {
+  simulation.scaleSelected(1.1);
+  updateSelectionPanel();
+});
+document.querySelector("#delete-selected").addEventListener("click", () => {
+  simulation.deleteSelected();
+  updateSelectionPanel();
+});
+
+const selectedPanel = document.querySelector("#selected-panel");
+const selectedProperties = document.querySelector("#selected-properties");
+const selectedCount = document.querySelector("#selected-count");
+const selectedInputs = [...document.querySelectorAll("[data-selected-prop]")];
+
+const selectedFieldFormat = {
+  physicalRadius: { get: (bubble) => bubble.physicalRadius * 100, patch: (value) => value * .01, digits: 1, suffix: " cm" },
+  filmThickness: { get: (bubble) => bubble.filmThickness, patch: (value) => value, digits: 0, suffix: " nm" },
+  flowEnabled: { get: (bubble) => bubble.flowEnabled, patch: (value) => value },
+  flowNoiseScale: { get: (bubble) => bubble.flowNoiseScale, patch: (value) => value, digits: 2, suffix: "" },
+  flowSpeed: { get: (bubble) => bubble.flowSpeed, patch: (value) => value, digits: 2, suffix: "" },
+  flowAmplitude: { get: (bubble) => bubble.flowAmplitude, patch: (value) => value, digits: 0, suffix: " nm" },
+  surfaceTension: { get: (bubble) => bubble.surfaceTension * 1000, patch: (value) => value * .001, digits: 1, suffix: " mN/m" },
+  dampingRatio: { get: (bubble) => bubble.dampingRatio, patch: (value) => value, digits: 2, suffix: "" }
+};
+
+function updateSelectionPanel() {
+  const selected = simulation.selectedBubbles();
+  const visible = simulation.params.toolMode === "edit" && selected.length > 0;
+  selectedPanel.hidden = !visible;
+  if (!visible) return;
+  selectedCount.textContent = `${selected.length} 个`;
+  selectedProperties.hidden = selected.length !== 1;
+  if (selected.length !== 1) return;
+  const bubble = selected[0];
+  selectedInputs.forEach((input) => {
+    const configuration = selectedFieldFormat[input.dataset.selectedProp];
+    const value = configuration.get(bubble);
+    if (input.type === "checkbox") input.checked = Boolean(value);
+    else input.value = String(value);
+    const output = document.querySelector(`[data-selected-output="${input.dataset.selectedProp}"]`);
+    if (output) output.textContent = `${Number(value).toFixed(configuration.digits)}${configuration.suffix}`;
+  });
+}
+
+selectedInputs.forEach((input) => {
+  input.addEventListener("input", () => {
+    const name = input.dataset.selectedProp;
+    const configuration = selectedFieldFormat[name];
+    const rawValue = input.type === "checkbox" ? input.checked : Number(input.value);
+    simulation.updateSelectedProperties({ [name]: configuration.patch(rawValue) });
+    updateSelectionPanel();
+  });
+  input.addEventListener("change", updateSelectionPanel);
+});
 
 const snapshotKey = "bubble-demo-scene-v5";
 document.querySelector("#snapshot-save").addEventListener("click", () => {
@@ -243,6 +313,7 @@ document.querySelector("#snapshot-load").addEventListener("click", () => {
       updateOutput(input);
     });
     updateModeButtons();
+    updateSelectionPanel();
     loadingLabel.hidden = false;
     loadingLabel.textContent = "场景读取完成";
     window.setTimeout(() => { loadingLabel.hidden = true; }, 1200);
@@ -257,6 +328,12 @@ let pointerActive = false;
 let pointerId = -1;
 let previousPointerX = 0;
 let camera = simulation.getCamera(1);
+let pointerMode = "none";
+let boxTimer = 0;
+let boxStart = [0, 0];
+let boxCurrent = [0, 0];
+let lastBlankTap = { time: -1000, x: 0, y: 0 };
+const selectionBox = document.querySelector("#selection-box");
 
 function localPointer(event) {
   const rect = canvas.getBoundingClientRect();
@@ -268,6 +345,26 @@ function localPointer(event) {
   };
 }
 
+function clearBoxTimer() {
+  clearTimeout(boxTimer);
+  boxTimer = 0;
+}
+
+function drawSelectionBox() {
+  const rect = canvas.getBoundingClientRect();
+  const left = Math.min(boxStart[0], boxCurrent[0]) + rect.left;
+  const top = Math.min(boxStart[1], boxCurrent[1]) + rect.top;
+  selectionBox.style.left = `${left}px`;
+  selectionBox.style.top = `${top}px`;
+  selectionBox.style.width = `${Math.abs(boxCurrent[0] - boxStart[0])}px`;
+  selectionBox.style.height = `${Math.abs(boxCurrent[1] - boxStart[1])}px`;
+}
+
+function cancelBoxSelection() {
+  clearBoxTimer();
+  selectionBox.classList.remove("active");
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   const point = localPointer(event);
   pointerActive = true;
@@ -275,17 +372,32 @@ canvas.addEventListener("pointerdown", (event) => {
   previousPointerX = point.x;
   canvas.setPointerCapture(event.pointerId);
   renderer.setTouch(point.x, point.y, true);
+  pointerMode = simulation.params.toolMode === "edit" ? "edit" : "browse";
   if (simulation.params.toolMode === "edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
-    const hit = simulation.pointerDown(
-      ray,
-      [point.x, point.y],
-      event.timeStamp / 1000,
-      camera
-    );
-    if (!hit && simulation.params.workspaceMode === "static") {
-      simulation.addBubblesAtRay(ray, camera, 0);
-      simulation.interaction.previousScreen = null;
+    const picked = simulation.pickBubble(ray);
+    if (!picked && simulation.params.workspaceMode === "static") {
+      pointerMode = "box-candidate";
+      boxStart = [point.x, point.y];
+      boxCurrent = [point.x, point.y];
+      clearBoxTimer();
+      boxTimer = window.setTimeout(() => {
+        if (pointerMode !== "box-candidate") return;
+        pointerMode = "box-select";
+        simulation.clearSelection();
+        selectionBox.classList.add("active");
+        drawSelectionBox();
+        updateSelectionPanel();
+      }, 250);
+    } else {
+      pointerMode = "bubble-edit";
+      simulation.pointerDown(
+        ray,
+        [point.x, point.y],
+        event.timeStamp / 1000,
+        camera
+      );
+      updateSelectionPanel();
     }
   }
 });
@@ -294,7 +406,18 @@ canvas.addEventListener("pointermove", (event) => {
   const point = localPointer(event);
   if (!pointerActive || event.pointerId !== pointerId) return;
   renderer.setTouch(point.x, point.y, true);
-  if (simulation.params.toolMode === "edit") {
+  if (pointerMode === "box-select") {
+    boxCurrent = [point.x, point.y];
+    drawSelectionBox();
+  } else if (pointerMode === "box-candidate") {
+    boxCurrent = [point.x, point.y];
+    if (Math.hypot(point.x - boxStart[0], point.y - boxStart[1]) > 10) {
+      clearBoxTimer();
+      pointerMode = "browse";
+      simulation.cameraYaw += (point.x - previousPointerX) * .5 * Math.PI / 180;
+      previousPointerX = point.x;
+    }
+  } else if (pointerMode === "bubble-edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
     simulation.pointerMove(
       ray,
@@ -303,7 +426,7 @@ canvas.addEventListener("pointermove", (event) => {
       camera,
       { width: point.width, height: point.height }
     );
-  } else {
+  } else if (pointerMode === "browse") {
     simulation.cameraYaw += (point.x - previousPointerX) * .5 * Math.PI / 180;
     previousPointerX = point.x;
   }
@@ -320,15 +443,51 @@ canvas.addEventListener("wheel", (event) => {
 
 function endPointer(event) {
   if (!pointerActive || event.pointerId !== pointerId) return;
+  const point = localPointer(event);
+  const endingMode = pointerMode;
   pointerActive = false;
   pointerId = -1;
-  simulation.pointerUp();
+  pointerMode = "none";
+  if (endingMode === "box-select") {
+    boxCurrent = [point.x, point.y];
+    const width = Math.abs(boxCurrent[0] - boxStart[0]);
+    const height = Math.abs(boxCurrent[1] - boxStart[1]);
+    if (event.type === "pointerup" && width >= 8 && height >= 8) {
+      simulation.selectBubblesInScreenRect(
+        boxStart,
+        boxCurrent,
+        camera,
+        { width: point.width, height: point.height }
+      );
+    }
+    cancelBoxSelection();
+    updateSelectionPanel();
+  } else if (endingMode === "box-candidate") {
+    clearBoxTimer();
+    if (event.type === "pointerup") {
+      const elapsed = event.timeStamp - lastBlankTap.time;
+      const close = Math.hypot(point.x - lastBlankTap.x, point.y - lastBlankTap.y) <= 14;
+      if (elapsed <= 350 && close) {
+        const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
+        simulation.addBubblesAtRay(ray, camera, 0);
+        lastBlankTap.time = -1000;
+      } else {
+        simulation.clearSelection();
+        lastBlankTap = { time: event.timeStamp, x: point.x, y: point.y };
+      }
+      updateSelectionPanel();
+    }
+  } else if (endingMode === "bubble-edit") {
+    simulation.pointerUp();
+    updateSelectionPanel();
+  }
   renderer.setTouch(0, 0, false);
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
 }
 
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
+window.addEventListener("blur", cancelBoxSelection);
 
 let previousFrame = performance.now();
 let fpsAccumulator = 0;

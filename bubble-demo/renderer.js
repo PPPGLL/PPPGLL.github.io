@@ -6,8 +6,6 @@ import {
 } from "./optics.js";
 
 const ENVIRONMENTS = [
-  "assets/envmap/lauter_waterfall_4k.hdr",
-  "assets/envmap/skukuza_golf_4k.hdr",
   "assets/envmap/sunny_vondelpark_4k.hdr"
 ];
 
@@ -851,7 +849,7 @@ export class BubbleRenderer {
       );
       gl.uniform1f(entry.uniforms.uNormalBlendWidth, blendWidth);
       gl.uniform1f(entry.uniforms.uNormalBlendStrength, params.bubbleNormalBlendStrength);
-      gl.uniform1i(entry.uniforms.uSelected, bubble.id === this.simulation.interaction.selectedId);
+      gl.uniform1i(entry.uniforms.uSelected, this.simulation.selectedIds.includes(bubble.id));
       for (let channel = 0; channel < 3; channel += 1) {
         gl.colorMask(channel === 0, channel === 1, channel === 2, true);
         gl.uniform1i(entry.uniforms.uBlendChannel, channel);
