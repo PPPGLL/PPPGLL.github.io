@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-4";
+import { v3, m3 } from "./math.js?v=20260807-5";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-4";
+} from "./optics.js?v=20260807-5";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -406,6 +406,7 @@ in vec2 vUv;
 out vec4 fragColor;
 uniform sampler2D uColor;
 uniform vec2 uInverseResolution;
+uniform bool uEnabled;
 
 float luminance(vec3 color) {
   return dot(color, vec3(0.299, 0.587, 0.114));
@@ -413,6 +414,10 @@ float luminance(vec3 color) {
 
 void main() {
   vec3 rgbM = texture(uColor, vUv).rgb;
+  if (!uEnabled) {
+    fragColor = vec4(rgbM, 1.0);
+    return;
+  }
   vec3 rgbNW = texture(uColor, vUv + vec2(-1.0,  1.0) * uInverseResolution).rgb;
   vec3 rgbNE = texture(uColor, vUv + vec2( 1.0,  1.0) * uInverseResolution).rgb;
   vec3 rgbSW = texture(uColor, vUv + vec2(-1.0, -1.0) * uInverseResolution).rgb;
@@ -709,7 +714,7 @@ export class BubbleRenderer {
       },
       fxaa: {
         program: fxaa,
-        uniforms: uniformLocations(gl, fxaa, ["uColor", "uInverseResolution"])
+        uniforms: uniformLocations(gl, fxaa, ["uColor", "uInverseResolution", "uEnabled"])
       }
     };
   }
@@ -1026,6 +1031,7 @@ export class BubbleRenderer {
     gl.bindVertexArray(this.fullScreenVao);
     setTexture(gl, entry.uniforms.uColor, 0, this.framebuffers.compositeTexture);
     gl.uniform2f(entry.uniforms.uInverseResolution, 1 / this.width, 1 / this.height);
+    gl.uniform1i(entry.uniforms.uEnabled, this.simulation.params.fxaaEnabled);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 

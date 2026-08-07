@@ -400,7 +400,11 @@
         </button>
       </div>
       <div class="row"><label for="resolution-scale">3D 渲染比例</label><span class="slider-wrap"><input id="resolution-scale" data-param="renderResolutionScale" data-format="percent" type="range" min=".5" max="1" step=".05" value="1"><output data-output="renderResolutionScale">100%</output></span></div>
-      <p class="note">100% 对应设备完整物理像素，并启用 FXAA 边缘抗锯齿。静态编辑下双击空白处放置泡泡；长按空白 250ms 后拖动可框选多个泡泡。</p>
+      <div class="row">
+        <label for="fxaa-enabled">FXAA 边缘抗锯齿</label>
+        <input id="fxaa-enabled" data-param="fxaaEnabled" type="checkbox" checked>
+      </div>
+      <p class="note">100% 对应设备完整物理像素。静态编辑下双击空白处放置泡泡；长按空白 250ms 后拖动可框选多个泡泡。</p>
     </section>
 
     <section class="panel" data-panel="furnace" hidden>
@@ -587,6 +591,6 @@
     </div>
   </section>
 
-  <script type="module" src="app.js?v=20260807-4"></script>
+  <script type="module" src="app.js?v=20260807-5"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-4";
-import { BubbleRenderer } from "./renderer.js?v=20260807-4";
-import { rayFromScreen } from "./math.js?v=20260807-4";
+import { BubbleSimulation } from "./physics.js?v=20260807-5";
+import { BubbleRenderer } from "./renderer.js?v=20260807-5";
+import { rayFromScreen } from "./math.js?v=20260807-5";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");

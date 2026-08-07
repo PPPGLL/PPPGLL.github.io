@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-4";
+} from "./math.js?v=20260807-5";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -71,6 +71,7 @@ export class BubbleSimulation {
       cameraDistance: 54,
       cameraFov: 60,
       renderResolutionScale: 1,
+      fxaaEnabled: true,
       bubbleOnlyOutput: false,
       plateauBorderStrength: 1,
       normalBlendWidthScale: .055,
