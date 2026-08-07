@@ -161,12 +161,25 @@ export const m4 = {
   }
 };
 
-export function buildCamera(yaw, distance, aspect, fovDegrees = 60) {
-  const position = [distance * Math.sin(yaw), 0, distance * Math.cos(yaw)];
-  const forward = v3.normalize(v3.scale(position, -1));
+export function buildCamera(
+  yaw,
+  distance,
+  aspect,
+  fovDegrees = 60,
+  pitch = 0,
+  target = [0, 0, 0]
+) {
+  const cosinePitch = Math.cos(pitch);
+  const orbitOffset = [
+    distance * Math.sin(yaw) * cosinePitch,
+    distance * Math.sin(pitch),
+    distance * Math.cos(yaw) * cosinePitch
+  ];
+  const position = v3.add(target, orbitOffset);
+  const forward = v3.normalize(v3.sub(target, position));
   const right = v3.normalize(v3.cross(forward, [0, 1, 0]));
   const up = v3.normalize(v3.cross(right, forward));
-  const view = m4.lookAt(position, [0, 0, 0], [0, 1, 0]);
+  const view = m4.lookAt(position, target, up);
   const projection = m4.perspective(fovDegrees * PI / 180, aspect, .1, 180);
   return {
     position,
@@ -175,7 +188,8 @@ export function buildCamera(yaw, distance, aspect, fovDegrees = 60) {
     up,
     viewProjection: m4.multiply(projection, view),
     tanHalfFov: Math.tan(fovDegrees * PI / 360),
-    aspect
+    aspect,
+    target: v3.clone(target)
   };
 }
 

@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-3";
+} from "./math.js?v=20260807-4";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -91,6 +91,7 @@ export class BubbleSimulation {
     this.randomState = 0x6d2b79f5;
     this.cameraYaw = 0;
     this.cameraPitch = 0;
+    this.cameraTarget = [0, 0, 0];
     this.elapsed = 0;
     this.fps = 0;
     this.interaction = this.createInteractionState();
@@ -242,7 +243,14 @@ export class BubbleSimulation {
 
   getCamera(aspect) {
     const distance = this.params.singlePreview ? 8 : this.params.cameraDistance;
-    return buildCamera(this.cameraYaw, distance, aspect, this.params.cameraFov);
+    return buildCamera(
+      this.cameraYaw,
+      distance,
+      aspect,
+      this.params.cameraFov,
+      this.cameraPitch,
+      this.cameraTarget
+    );
   }
 
   getWorldRadius(bubble) {
@@ -501,6 +509,8 @@ export class BubbleSimulation {
       version: 5,
       params: { ...this.params, showcaseMode: false },
       cameraYaw: this.cameraYaw,
+      cameraPitch: this.cameraPitch,
+      cameraTarget: [...this.cameraTarget],
       bubbles: this.bubbles.map((bubble) => ({
         ...bubble,
         position: [...bubble.position],
@@ -518,6 +528,10 @@ export class BubbleSimulation {
     Object.assign(this.params, snapshot.params || {});
     if (this.params.toolMode === "edit") this.params.workspaceMode = "static";
     this.cameraYaw = Number(snapshot.cameraYaw) || 0;
+    this.cameraPitch = clamp(Number(snapshot.cameraPitch) || 0, -85 * PI / 180, 85 * PI / 180);
+    this.cameraTarget = Array.isArray(snapshot.cameraTarget) && snapshot.cameraTarget.length === 3
+      ? snapshot.cameraTarget.map((value) => Number(value) || 0)
+      : [0, 0, 0];
     this.bubbles = snapshot.bubbles.slice(0, MAX_EDITOR_BUBBLES).map((bubble) => ({
       ...bubble,
       position: [...bubble.position],

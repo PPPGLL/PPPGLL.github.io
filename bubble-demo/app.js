@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-3";
-import { BubbleRenderer } from "./renderer.js?v=20260807-3";
-import { rayFromScreen } from "./math.js?v=20260807-3";
+import { BubbleSimulation } from "./physics.js?v=20260807-4";
+import { BubbleRenderer } from "./renderer.js?v=20260807-4";
+import { rayFromScreen } from "./math.js?v=20260807-4";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
@@ -333,8 +333,12 @@ document.querySelector("#snapshot-load").addEventListener("click", () => {
 let pointerActive = false;
 let pointerId = -1;
 let previousPointerX = 0;
+let previousPointerY = 0;
 let camera = simulation.getCamera(1);
 let pointerMode = "none";
+const activePointers = new Map();
+let gesturePreviousMidpoint = [0, 0];
+let gesturePreviousDistance = 0;
 let boxTimer = 0;
 let boxStart = [0, 0];
 let boxCurrent = [0, 0];
@@ -371,13 +375,65 @@ function cancelBoxSelection() {
   selectionBox.classList.remove("active");
 }
 
+function syncCameraDistanceInput() {
+  const input = document.querySelector('[data-param="cameraDistance"]');
+  input.value = String(simulation.params.cameraDistance);
+  updateOutput(input);
+}
+
+function orbitCamera(deltaX, deltaY) {
+  simulation.cameraYaw += deltaX * .5 * Math.PI / 180;
+  const pitchLimit = 85 * Math.PI / 180;
+  simulation.cameraPitch = Math.max(-pitchLimit, Math.min(pitchLimit,
+    simulation.cameraPitch + deltaY * .5 * Math.PI / 180));
+}
+
+function panCamera(deltaX, deltaY, viewportHeight) {
+  const worldPerPixel = 2 * simulation.params.cameraDistance * camera.tanHalfFov /
+    Math.max(viewportHeight, 1);
+  const target = simulation.cameraTarget;
+  for (let axis = 0; axis < 3; axis += 1) {
+    target[axis] += camera.right[axis] * (-deltaX * worldPerPixel) +
+      camera.up[axis] * (deltaY * worldPerPixel);
+  }
+}
+
+function beginTwoPointerGesture() {
+  const points = [...activePointers.values()];
+  if (points.length < 2) return false;
+  if (pointerMode === "bubble-edit") simulation.pointerUp();
+  cancelBoxSelection();
+  pointerMode = "camera-gesture";
+  gesturePreviousMidpoint = [
+    (points[0].x + points[1].x) * .5,
+    (points[0].y + points[1].y) * .5
+  ];
+  gesturePreviousDistance = Math.max(Math.hypot(
+    points[1].x - points[0].x,
+    points[1].y - points[0].y
+  ), 1);
+  renderer.setTouch(0, 0, false);
+  return true;
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   const point = localPointer(event);
+  activePointers.set(event.pointerId, point);
+  canvas.setPointerCapture(event.pointerId);
+  if (activePointers.size >= 2 && beginTwoPointerGesture()) {
+    event.preventDefault();
+    return;
+  }
   pointerActive = true;
   pointerId = event.pointerId;
   previousPointerX = point.x;
-  canvas.setPointerCapture(event.pointerId);
+  previousPointerY = point.y;
   renderer.setTouch(point.x, point.y, true);
+  if (event.shiftKey || event.button === 1 || event.button === 2) {
+    pointerMode = "camera-pan";
+    event.preventDefault();
+    return;
+  }
   pointerMode = simulation.params.toolMode === "edit" ? "edit" : "browse";
   if (simulation.params.toolMode === "edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
@@ -410,6 +466,30 @@ canvas.addEventListener("pointerdown", (event) => {
 
 canvas.addEventListener("pointermove", (event) => {
   const point = localPointer(event);
+  if (activePointers.has(event.pointerId)) activePointers.set(event.pointerId, point);
+  if (pointerMode === "camera-gesture" && activePointers.size >= 2) {
+    const points = [...activePointers.values()];
+    const midpoint = [
+      (points[0].x + points[1].x) * .5,
+      (points[0].y + points[1].y) * .5
+    ];
+    const distance = Math.max(Math.hypot(
+      points[1].x - points[0].x,
+      points[1].y - points[0].y
+    ), 1);
+    panCamera(
+      midpoint[0] - gesturePreviousMidpoint[0],
+      midpoint[1] - gesturePreviousMidpoint[1],
+      point.height
+    );
+    simulation.params.cameraDistance = Math.max(20, Math.min(120,
+      simulation.params.cameraDistance * gesturePreviousDistance / distance));
+    gesturePreviousMidpoint = midpoint;
+    gesturePreviousDistance = distance;
+    syncCameraDistanceInput();
+    event.preventDefault();
+    return;
+  }
   if (!pointerActive || event.pointerId !== pointerId) return;
   renderer.setTouch(point.x, point.y, true);
   if (pointerMode === "box-select") {
@@ -420,8 +500,9 @@ canvas.addEventListener("pointermove", (event) => {
     if (Math.hypot(point.x - boxStart[0], point.y - boxStart[1]) > 10) {
       clearBoxTimer();
       pointerMode = "browse";
-      simulation.cameraYaw += (point.x - previousPointerX) * .5 * Math.PI / 180;
+      orbitCamera(point.x - previousPointerX, point.y - previousPointerY);
       previousPointerX = point.x;
+      previousPointerY = point.y;
     }
   } else if (pointerMode === "bubble-edit") {
     const ray = rayFromScreen(camera, point.x, point.y, point.width, point.height);
@@ -433,8 +514,13 @@ canvas.addEventListener("pointermove", (event) => {
       { width: point.width, height: point.height }
     );
   } else if (pointerMode === "browse") {
-    simulation.cameraYaw += (point.x - previousPointerX) * .5 * Math.PI / 180;
+    orbitCamera(point.x - previousPointerX, point.y - previousPointerY);
     previousPointerX = point.x;
+    previousPointerY = point.y;
+  } else if (pointerMode === "camera-pan") {
+    panCamera(point.x - previousPointerX, point.y - previousPointerY, point.height);
+    previousPointerX = point.x;
+    previousPointerY = point.y;
   }
 });
 
@@ -442,12 +528,21 @@ canvas.addEventListener("wheel", (event) => {
   event.preventDefault();
   simulation.params.cameraDistance = Math.max(20, Math.min(120,
     simulation.params.cameraDistance * Math.exp(event.deltaY * .001)));
-  const input = document.querySelector('[data-param="cameraDistance"]');
-  input.value = String(simulation.params.cameraDistance);
-  updateOutput(input);
+  syncCameraDistanceInput();
 }, { passive: false });
 
 function endPointer(event) {
+  activePointers.delete(event.pointerId);
+  if (pointerMode === "camera-gesture") {
+    if (activePointers.size < 2) {
+      pointerActive = false;
+      pointerId = -1;
+      pointerMode = "none";
+      renderer.setTouch(0, 0, false);
+    }
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    return;
+  }
   if (!pointerActive || event.pointerId !== pointerId) return;
   const point = localPointer(event);
   const endingMode = pointerMode;
@@ -493,6 +588,7 @@ function endPointer(event) {
 
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
+canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("blur", cancelBoxSelection);
 
 let previousFrame = performance.now();
