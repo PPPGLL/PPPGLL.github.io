@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-17";
+import { v3, m3 } from "./math.js?v=20260807-18";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-17";
+} from "./optics.js?v=20260807-18";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -78,7 +78,16 @@ vec3 sampleEnvironment(vec3 direction) {
   // so the seam itself does not incorrectly select the blurriest mip level.
   uvDx.x -= round(uvDx.x);
   uvDy.x -= round(uvDy.x);
-  return clamp(finiteColor(textureGrad(uEnvironment, uv, uvDx, uvDy).rgb),
+  vec2 textureDimensions = vec2(textureSize(uEnvironment, 0));
+  vec2 footprintDx = uvDx * textureDimensions;
+  vec2 footprintDy = uvDy * textureDimensions;
+  float footprintSquared = max(dot(footprintDx, footprintDx),
+    dot(footprintDy, footprintDy));
+  // Reflection derivatives become singular at silhouettes, shared-film rims
+  // and clipped seams. Very coarse HDR mips spread the sun across those pixels
+  // and produce a false white outline, so retain only two useful LOD levels.
+  float lod = clamp(0.5 * log2(max(footprintSquared, 1.0)), 0.0, 2.0);
+  return clamp(finiteColor(textureLod(uEnvironment, uv, lod).rgb),
     vec3(0.0), vec3(60000.0));
 }
 
