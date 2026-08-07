@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-6";
+} from "./math.js?v=20260807-7";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -923,8 +923,10 @@ export class BubbleSimulation {
     const normal = v3.scale(axisVector, 1 / currentDistance);
     const r1 = this.getWorldRadius(first);
     const r2 = this.getWorldRadius(second);
+    const useCurrentDistance = this.params.workspaceMode !== "realtime" || bond.editorGenerated;
+    const sourceDistance = useCurrentDistance ? currentDistance : bond.restDistance;
     const distance = clamp(
-      bond.restDistance,
+      sourceDistance,
       Math.abs(r1 - r2) + 1e-4,
       r1 + r2 - 1e-4
     );
@@ -969,7 +971,10 @@ export class BubbleSimulation {
       flowAmplitude: .5 * (first.flowAmplitude + second.flowAmplitude)
     };
     if (updateClipPlanes) {
-      const outerRadius = Math.min(circleRadius + .5 * borderSize, .999 * Math.min(r1, r2));
+      // The body and Plateau ring are composited in separate WebGL targets.
+      // Keep the body slightly under the ring instead of meeting at an exact
+      // zero-width boundary, which can expose background pixels at oblique views.
+      const outerRadius = Math.min(circleRadius + .35 * borderSize, .999 * Math.min(r1, r2));
       const x1Outer = Math.sign(x || 1) * Math.sqrt(Math.max(r1 * r1 - outerRadius * outerRadius, 0));
       const x2Outer = Math.sign(x2 || 1) * Math.sqrt(Math.max(r2 * r2 - outerRadius * outerRadius, 0));
       const firstOffset = x - x1Outer;
