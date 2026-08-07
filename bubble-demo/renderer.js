@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-16";
+import { v3, m3 } from "./math.js?v=20260807-17";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-16";
+} from "./optics.js?v=20260807-17";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -71,7 +71,14 @@ vec2 directionToEquirectUv(vec3 direction) {
 
 vec3 sampleEnvironment(vec3 direction) {
   if (uWhiteFurnace) return vec3(0.5);
-  return clamp(finiteColor(texture(uEnvironment, directionToEquirectUv(direction)).rgb),
+  vec2 uv = directionToEquirectUv(direction);
+  vec2 uvDx = dFdx(uv);
+  vec2 uvDy = dFdy(uv);
+  // Equirectangular U wraps at the seam. Use the shortest wrapped derivative
+  // so the seam itself does not incorrectly select the blurriest mip level.
+  uvDx.x -= round(uvDx.x);
+  uvDy.x -= round(uvDy.x);
+  return clamp(finiteColor(textureGrad(uEnvironment, uv, uvDx, uvDy).rgb),
     vec3(0.0), vec3(60000.0));
 }
 
