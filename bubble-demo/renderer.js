@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-9";
+import { v3, m3 } from "./math.js?v=20260807-12";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-9";
+} from "./optics.js?v=20260807-12";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -670,6 +670,79 @@ function createDisplayTexture(gl, width, height) {
   return texture;
 }
 
+function createMultisampleTargets(gl, width, height, requestedSamples = 4) {
+  const reported = gl.getInternalformatParameter(
+    gl.RENDERBUFFER,
+    gl.RGBA16F,
+    gl.SAMPLES
+  );
+  const supported = Array.from(reported || [])
+    .filter((samples) => samples > 0 && samples <= requestedSamples)
+    .sort((first, second) => second - first);
+  const samples = supported[0] || 0;
+  if (!samples) return null;
+
+  const createColorBuffer = () => {
+    const buffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, buffer);
+    gl.renderbufferStorageMultisample(
+      gl.RENDERBUFFER,
+      samples,
+      gl.RGBA16F,
+      width,
+      height
+    );
+    return buffer;
+  };
+
+  const sceneColor = createColorBuffer();
+  const sceneFbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
+  gl.framebufferRenderbuffer(
+    gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, sceneColor
+  );
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+  const sceneComplete =
+    gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+
+  const connectionOpticalDepth = createColorBuffer();
+  const connectionReflection = createColorBuffer();
+  const connectionFbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, connectionFbo);
+  gl.framebufferRenderbuffer(
+    gl.FRAMEBUFFER,
+    gl.COLOR_ATTACHMENT0,
+    gl.RENDERBUFFER,
+    connectionOpticalDepth
+  );
+  gl.framebufferRenderbuffer(
+    gl.FRAMEBUFFER,
+    gl.COLOR_ATTACHMENT1,
+    gl.RENDERBUFFER,
+    connectionReflection
+  );
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+
+  const connectionComplete =
+    gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  if (!sceneComplete || !connectionComplete) {
+    gl.deleteFramebuffer(sceneFbo);
+    gl.deleteFramebuffer(connectionFbo);
+    gl.deleteRenderbuffer(sceneColor);
+    gl.deleteRenderbuffer(connectionOpticalDepth);
+    gl.deleteRenderbuffer(connectionReflection);
+    return null;
+  }
+  return {
+    samples,
+    sceneFbo,
+    sceneColor,
+    connectionFbo,
+    connectionOpticalDepth,
+    connectionReflection
+  };
+}
+
 function setTexture(gl, location, unit, texture) {
   gl.activeTexture(gl.TEXTURE0 + unit);
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -839,6 +912,14 @@ export class BubbleRenderer {
       gl.deleteTexture(this.framebuffers.weightedTexture);
       gl.deleteTexture(this.framebuffers.compositeTexture);
       gl.deleteTexture(this.framebuffers.depthTexture);
+      const msaa = this.framebuffers.msaa;
+      if (msaa) {
+        gl.deleteFramebuffer(msaa.sceneFbo);
+        gl.deleteFramebuffer(msaa.connectionFbo);
+        gl.deleteRenderbuffer(msaa.sceneColor);
+        gl.deleteRenderbuffer(msaa.connectionOpticalDepth);
+        gl.deleteRenderbuffer(msaa.connectionReflection);
+      }
     }
     const sceneTexture = createColorTexture(gl, width, height);
     const sceneFbo = gl.createFramebuffer();
@@ -867,6 +948,8 @@ export class BubbleRenderer {
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
       throw new Error("Floating-point framebuffer is incomplete");
     }
+    const msaa = createMultisampleTargets(gl, width, height, 4);
+    this.canvas.dataset.msaaSamples = String(msaa?.samples || 0);
 
     const depthTexture = createColorTexture(gl, width, height);
     const depthRenderbuffer = gl.createRenderbuffer();
@@ -904,7 +987,8 @@ export class BubbleRenderer {
       depthRenderbuffer,
       depthFbo,
       compositeTexture,
-      compositeFbo
+      compositeFbo,
+      msaa
     };
   }
 
@@ -973,10 +1057,48 @@ export class BubbleRenderer {
     gl.uniform1f(uniforms.uEta2, params.eta2);
   }
 
+  resolveSceneMultisample() {
+    const gl = this.gl;
+    const msaa = this.framebuffers.msaa;
+    if (!msaa) return;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, msaa.sceneFbo);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.framebuffers.sceneFbo);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    gl.blitFramebuffer(
+      0, 0, this.width, this.height,
+      0, 0, this.width, this.height,
+      gl.COLOR_BUFFER_BIT,
+      gl.NEAREST
+    );
+  }
+
+  resolveConnectionMultisample() {
+    const gl = this.gl;
+    const msaa = this.framebuffers.msaa;
+    if (!msaa) return;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, msaa.connectionFbo);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.framebuffers.connectionFbo);
+    [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1].forEach((attachment) => {
+      gl.readBuffer(attachment);
+      gl.drawBuffers([attachment]);
+      gl.blitFramebuffer(
+        0, 0, this.width, this.height,
+        0, 0, this.width, this.height,
+        gl.COLOR_BUFFER_BIT,
+        gl.NEAREST
+      );
+    });
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+  }
+
   renderBackground(camera) {
     const gl = this.gl;
     const entry = this.programs.background;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers.sceneFbo);
+    gl.bindFramebuffer(
+      gl.FRAMEBUFFER,
+      this.framebuffers.msaa?.sceneFbo || this.framebuffers.sceneFbo
+    );
     gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
     gl.viewport(0, 0, this.width, this.height);
     gl.disable(gl.BLEND);
@@ -1004,7 +1126,10 @@ export class BubbleRenderer {
       const secondDepth = v3.distance(second.position, camera.position);
       return secondDepth - firstDepth;
     });
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers.sceneFbo);
+    gl.bindFramebuffer(
+      gl.FRAMEBUFFER,
+      this.framebuffers.msaa?.sceneFbo || this.framebuffers.sceneFbo
+    );
     gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
@@ -1051,6 +1176,7 @@ export class BubbleRenderer {
     });
     gl.colorMask(true, true, true, true);
     gl.disable(gl.BLEND);
+    this.resolveSceneMultisample();
   }
 
   renderConnectionPiece(entry, camera, geometry, plateauMode) {
@@ -1102,7 +1228,10 @@ export class BubbleRenderer {
   renderConnections(camera) {
     const gl = this.gl;
     const entry = this.programs.connection;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers.connectionFbo);
+    gl.bindFramebuffer(
+      gl.FRAMEBUFFER,
+      this.framebuffers.msaa?.connectionFbo || this.framebuffers.connectionFbo
+    );
     gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
     gl.viewport(0, 0, this.width, this.height);
     gl.disable(gl.DEPTH_TEST);
@@ -1110,7 +1239,10 @@ export class BubbleRenderer {
     gl.disable(gl.BLEND);
     gl.clearBufferfv(gl.COLOR, 0, new Float32Array([0, 0, 0, 0]));
     gl.clearBufferfv(gl.COLOR, 1, new Float32Array([0, 0, 0, 0]));
-    if (this.simulation.params.singlePreview || !this.simulation.bonds.length) return;
+    if (this.simulation.params.singlePreview || !this.simulation.bonds.length) {
+      this.resolveConnectionMultisample();
+      return;
+    }
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
     gl.blendFunc(gl.ONE, gl.ONE);
@@ -1124,6 +1256,7 @@ export class BubbleRenderer {
     });
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.BLEND);
+    this.resolveConnectionMultisample();
   }
 
   setDepthClipUniforms(entry, clipPlanes) {
