@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-2";
-import { BubbleRenderer } from "./renderer.js?v=20260807-2";
-import { rayFromScreen } from "./math.js?v=20260807-2";
+import { BubbleSimulation } from "./physics.js?v=20260807-3";
+import { BubbleRenderer } from "./renderer.js?v=20260807-3";
+import { rayFromScreen } from "./math.js?v=20260807-3";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
@@ -45,6 +45,10 @@ function updateOutput(input) {
   const output = document.querySelector(`[data-output="${input.dataset.param}"]`);
   if (!output) return;
   const value = Number(input.value);
+  if (input.dataset.format === "percent") {
+    output.textContent = `${Math.round(value * 100)}%`;
+    return;
+  }
   const precision = Number(input.dataset.precision ?? 2);
   const suffix = input.dataset.suffix ?? "";
   output.textContent = `${value.toFixed(precision)}${suffix}`;

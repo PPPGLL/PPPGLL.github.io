@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-2";
+import { v3, m3 } from "./math.js?v=20260807-3";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-2";
+} from "./optics.js?v=20260807-3";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -400,6 +400,50 @@ void main() {
   fragColor = vec4(color, 1.0);
 }`;
 
+const fxaaFragment = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uColor;
+uniform vec2 uInverseResolution;
+
+float luminance(vec3 color) {
+  return dot(color, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+  vec3 rgbM = texture(uColor, vUv).rgb;
+  vec3 rgbNW = texture(uColor, vUv + vec2(-1.0,  1.0) * uInverseResolution).rgb;
+  vec3 rgbNE = texture(uColor, vUv + vec2( 1.0,  1.0) * uInverseResolution).rgb;
+  vec3 rgbSW = texture(uColor, vUv + vec2(-1.0, -1.0) * uInverseResolution).rgb;
+  vec3 rgbSE = texture(uColor, vUv + vec2( 1.0, -1.0) * uInverseResolution).rgb;
+  float lumaM = luminance(rgbM);
+  float lumaNW = luminance(rgbNW);
+  float lumaNE = luminance(rgbNE);
+  float lumaSW = luminance(rgbSW);
+  float lumaSE = luminance(rgbSE);
+  float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+  float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+  if (lumaMax - lumaMin < max(0.0312, lumaMax * 0.063)) {
+    fragColor = vec4(rgbM, 1.0);
+    return;
+  }
+  vec2 direction;
+  direction.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+  direction.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+  float reduction = max((lumaNW + lumaNE + lumaSW + lumaSE) * 0.03125, 0.0078125);
+  float inverseMinimum = 1.0 / (min(abs(direction.x), abs(direction.y)) + reduction);
+  direction = clamp(direction * inverseMinimum, vec2(-8.0), vec2(8.0)) * uInverseResolution;
+  vec3 rgbA = 0.5 * (
+    texture(uColor, vUv + direction * (1.0 / 3.0 - 0.5)).rgb +
+    texture(uColor, vUv + direction * (2.0 / 3.0 - 0.5)).rgb);
+  vec3 rgbB = rgbA * 0.5 + 0.25 * (
+    texture(uColor, vUv + direction * -0.5).rgb +
+    texture(uColor, vUv + direction * 0.5).rgb);
+  float lumaB = luminance(rgbB);
+  fragColor = vec4((lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB, 1.0);
+}`;
+
 function compileProgram(gl, vertexSource, fragmentSource) {
   const compile = (type, source) => {
     const shader = gl.createShader(type);
@@ -536,6 +580,17 @@ function createColorTexture(gl, width, height) {
   return texture;
 }
 
+function createDisplayTexture(gl, width, height) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  return texture;
+}
+
 function setTexture(gl, location, unit, texture) {
   gl.activeTexture(gl.TEXTURE0 + unit);
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -611,6 +666,7 @@ export class BubbleRenderer {
     const background = compileProgram(gl, fullScreenVertex, backgroundFragment);
     const connection = compileProgram(gl, connectionVertex, connectionFragment);
     const final = compileProgram(gl, fullScreenVertex, finalFragment);
+    const fxaa = compileProgram(gl, fullScreenVertex, fxaaFragment);
     return {
       sphere: {
         program: sphere,
@@ -650,23 +706,26 @@ export class BubbleRenderer {
           "uResolution", "uBubbleOnly", "uDepthOfFieldEnabled", "uDepthOfFieldMode",
           "uDepthOfFieldFocusDistance", "uDepthOfFieldBackgroundDistance", "uDepthOfFieldStrength"
         ])
+      },
+      fxaa: {
+        program: fxaa,
+        uniforms: uniformLocations(gl, fxaa, ["uColor", "uInverseResolution"])
       }
     };
   }
 
   resize() {
     const gl = this.gl;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5) *
-      Math.max(.5, Math.min(1, this.simulation.params.renderResolutionScale));
+    const nativeDpr = Math.max(window.devicePixelRatio || 1, 1);
+    const dpr = nativeDpr * Math.max(.5, Math.min(1, this.simulation.params.renderResolutionScale));
     const cssWidth = Math.max(this.canvas.clientWidth, 1);
     const cssHeight = Math.max(this.canvas.clientHeight, 1);
-    const pixelBudget = 2_600_000;
-    const requestedPixels = cssWidth * cssHeight * dpr * dpr;
-    const budgetScale = requestedPixels > pixelBudget
-      ? Math.sqrt(pixelBudget / requestedPixels)
-      : 1;
-    const width = Math.max(1, Math.round(cssWidth * dpr * budgetScale));
-    const height = Math.max(1, Math.round(cssHeight * dpr * budgetScale));
+    const maximumTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const requestedWidth = Math.max(1, Math.round(cssWidth * dpr));
+    const requestedHeight = Math.max(1, Math.round(cssHeight * dpr));
+    const hardwareScale = Math.min(1, maximumTextureSize / requestedWidth, maximumTextureSize / requestedHeight);
+    const width = Math.max(1, Math.round(requestedWidth * hardwareScale));
+    const height = Math.max(1, Math.round(requestedHeight * hardwareScale));
     if (width === this.width && height === this.height) return;
     this.width = width;
     this.height = height;
@@ -675,9 +734,11 @@ export class BubbleRenderer {
     if (this.framebuffers) {
       gl.deleteFramebuffer(this.framebuffers.sceneFbo);
       gl.deleteFramebuffer(this.framebuffers.connectionFbo);
+      gl.deleteFramebuffer(this.framebuffers.compositeFbo);
       gl.deleteTexture(this.framebuffers.sceneTexture);
       gl.deleteTexture(this.framebuffers.opticalDepthTexture);
       gl.deleteTexture(this.framebuffers.weightedTexture);
+      gl.deleteTexture(this.framebuffers.compositeTexture);
     }
     const sceneTexture = createColorTexture(gl, width, height);
     const sceneFbo = gl.createFramebuffer();
@@ -706,13 +767,24 @@ export class BubbleRenderer {
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
       throw new Error("Floating-point framebuffer is incomplete");
     }
+
+    const compositeTexture = createDisplayTexture(gl, width, height);
+    const compositeFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, compositeFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, compositeTexture, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error("Display framebuffer is incomplete");
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.framebuffers = {
       sceneTexture,
       sceneFbo,
       opticalDepthTexture,
       weightedTexture,
-      connectionFbo
+      connectionFbo,
+      compositeTexture,
+      compositeFbo
     };
   }
 
@@ -919,7 +991,8 @@ export class BubbleRenderer {
   renderFinal() {
     const gl = this.gl;
     const entry = this.programs.final;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers.compositeFbo);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
     gl.viewport(0, 0, this.width, this.height);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
@@ -942,6 +1015,20 @@ export class BubbleRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
+  renderPresent() {
+    const gl = this.gl;
+    const entry = this.programs.fxaa;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.width, this.height);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(entry.program);
+    gl.bindVertexArray(this.fullScreenVao);
+    setTexture(gl, entry.uniforms.uColor, 0, this.framebuffers.compositeTexture);
+    gl.uniform2f(entry.uniforms.uInverseResolution, 1 / this.width, 1 / this.height);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
   render() {
     this.resize();
     const camera = this.simulation.getCamera(this.width / this.height);
@@ -949,6 +1036,7 @@ export class BubbleRenderer {
     this.renderBubbles(camera);
     this.renderConnections(camera);
     this.renderFinal();
+    this.renderPresent();
     return camera;
   }
 }
