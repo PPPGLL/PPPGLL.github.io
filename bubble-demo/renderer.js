@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-19";
+import { v3, m3 } from "./math.js?v=20260807-20";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-19";
+} from "./optics.js?v=20260807-20";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -74,8 +74,6 @@ vec3 sampleEnvironment(vec3 direction) {
   vec2 uv = directionToEquirectUv(direction);
   vec2 uvDx = dFdx(uv);
   vec2 uvDy = dFdy(uv);
-  // Equirectangular U wraps at the seam. Use the shortest wrapped derivative
-  // so the seam itself does not incorrectly select the blurriest mip level.
   uvDx.x -= round(uvDx.x);
   uvDy.x -= round(uvDy.x);
   vec2 textureDimensions = vec2(textureSize(uEnvironment, 0));
@@ -83,17 +81,10 @@ vec3 sampleEnvironment(vec3 direction) {
   vec2 footprintDy = uvDy * textureDimensions;
   float footprintSquared = max(dot(footprintDx, footprintDx),
     dot(footprintDy, footprintDy));
-  // Reflection derivatives become singular at silhouettes, shared-film rims
-  // and clipped seams. Very coarse HDR mips spread the sun across those pixels
-  // and produce a false white outline, so retain only two useful LOD levels.
   float lod = clamp(0.5 * log2(max(footprintSquared, 1.0)), 0.0, 2.0);
-  // Generated equirectangular mip levels do not filter across the horizontal
-  // wrap boundary. Fade back to the continuous base level around U=0/1 so the
-  // independently averaged mip edges cannot meet as a bright reflected seam.
   float seamDistance = min(uv.x, 1.0 - uv.x);
   float seamWidth = 4.0 * exp2(lod) / max(textureDimensions.x, 1.0);
-  float seamLodWeight = smoothstep(0.0, seamWidth, seamDistance);
-  lod *= seamLodWeight;
+  lod *= smoothstep(0.0, seamWidth, seamDistance);
   return clamp(finiteColor(textureLod(uEnvironment, uv, lod).rgb),
     vec3(0.0), vec3(60000.0));
 }
@@ -265,7 +256,10 @@ void main() {
     uCameraRight * (p.x * uTanHalfFov * uAspect) +
     uCameraUp * (p.y * uTanHalfFov)
   );
-  vec3 sampled = texture(uEnvironment, directionToUv(ray)).rgb;
+  // The camera-visible environment must remain the original level-zero image.
+  // Automatic derivatives across the equirectangular wrap select incompatible
+  // mip texels and expose a bright vertical seam in the skybox.
+  vec3 sampled = textureLod(uEnvironment, directionToUv(ray), 0.0).rgb;
   sampled = vec3(
     (isnan(sampled.r) || isinf(sampled.r)) ? 0.0 : sampled.r,
     (isnan(sampled.g) || isinf(sampled.g)) ? 0.0 : sampled.g,
