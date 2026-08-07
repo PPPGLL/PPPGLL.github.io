@@ -5,7 +5,7 @@ import {
   buildCamera,
   intersectRayPlane,
   distancePointToSegment2D
-} from "./math.js?v=20260807-9";
+} from "./math.js?v=20260807-15";
 
 export const WORLD_UNITS_PER_METER = 50;
 const AIR_DENSITY = 1.225;
@@ -15,6 +15,10 @@ const MAX_BUBBLES = 64;
 const MAX_EDITOR_BUBBLES = 128;
 const COLLISION_ITERATIONS = 6;
 const MAX_SPEED = 10;
+// Bonded bubbles may overlap to form a shared film, but the overlap depth must
+// not exceed half of the smaller radius. For equal bubbles this keeps their
+// center distance at or above 1.5 radii instead of allowing it to fall to one.
+const MAXIMUM_BOND_OVERLAP_TO_MINIMUM_RADIUS = .5;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -647,10 +651,15 @@ export class BubbleSimulation {
         const bond = this.findBond(first.id, second.id);
         if (bond) {
           bond.editorGenerated = true;
+          const minimumRestDistance = this.minimumBondCenterDistance(first, second);
+          const maximumRestDistance = Math.max(
+            minimumRestDistance,
+            this.getWorldRadius(first) + this.getWorldRadius(second) - 1e-4
+          );
           bond.restDistance = clamp(
             distance,
-            Math.abs(this.getWorldRadius(first) - this.getWorldRadius(second)) + 1e-4,
-            this.getWorldRadius(first) + this.getWorldRadius(second) - 1e-4
+            minimumRestDistance,
+            maximumRestDistance
           );
         }
       }
@@ -677,21 +686,83 @@ export class BubbleSimulation {
   }
 
   bondRestDistance(first, second) {
-    const r1 = this.getPhysicalWorldRadius(first);
-    const r2 = this.getPhysicalWorldRadius(second);
+    const r1 = this.getWorldRadius(first);
+    const r2 = this.getWorldRadius(second);
     const wetness = this.params.wetness;
-    return Math.sqrt(Math.max(
+    const wetnessDistance = Math.sqrt(Math.max(
       r1 * r1 + r2 * r2 + (3 * wetness - 1) * r1 * r2,
-      (Math.abs(r1 - r2) + 1e-4) ** 2
+      1e-8
     ));
+    return Math.max(wetnessDistance, this.minimumBondCenterDistance(first, second));
+  }
+
+  minimumBondCenterDistance(first, second) {
+    const r1 = this.getWorldRadius(first);
+    const r2 = this.getWorldRadius(second);
+    return Math.max(
+      r1 + r2 - MAXIMUM_BOND_OVERLAP_TO_MINIMUM_RADIUS * Math.min(r1, r2),
+      Math.abs(r1 - r2) + 1e-4
+    );
   }
 
   updateBondRestDistances() {
     this.bonds.forEach((bond) => {
       const first = this.findBubble(bond.firstId);
       const second = this.findBubble(bond.secondId);
-      if (first && second) bond.restDistance = this.bondRestDistance(first, second);
+      if (!first || !second) return;
+      if (bond.editorGenerated) {
+        const minimumRestDistance = this.minimumBondCenterDistance(first, second);
+        const maximumRestDistance = Math.max(
+          minimumRestDistance,
+          this.getWorldRadius(first) + this.getWorldRadius(second) - 1e-4
+        );
+        bond.restDistance = clamp(
+          bond.restDistance,
+          minimumRestDistance,
+          maximumRestDistance
+        );
+      } else {
+        bond.restDistance = this.bondRestDistance(first, second);
+      }
+      bond.constraintLambda = 0;
     });
+  }
+
+  constrainEditorDraggedBubbles() {
+    const draggedIds = new Set(this.interaction.groupDragIds);
+    if (!draggedIds.size) return;
+    const isDragged = (bubble) => draggedIds.has(bubble.id);
+    const separationIterations = 4;
+    for (let iteration = 0; iteration < separationIterations; iteration += 1) {
+      for (let firstIndex = 0; firstIndex < this.bubbles.length; firstIndex += 1) {
+        const first = this.bubbles[firstIndex];
+        if (first.popped) continue;
+        for (let secondIndex = firstIndex + 1; secondIndex < this.bubbles.length; secondIndex += 1) {
+          const second = this.bubbles[secondIndex];
+          if (second.popped) continue;
+          const firstDragged = isDragged(first);
+          const secondDragged = isDragged(second);
+          if (firstDragged === secondDragged) continue;
+          const minimumDistance = this.minimumBondCenterDistance(first, second);
+          const centerDelta = v3.sub(second.position, first.position);
+          const distance = v3.length(centerDelta);
+          if (distance >= minimumDistance) continue;
+          const normal = distance > 1e-6
+            ? v3.scale(centerDelta, 1 / distance)
+            : deterministicNormal(firstIndex, secondIndex);
+          const correction = minimumDistance - distance;
+          const selectionCorrection = v3.scale(
+            normal,
+            firstDragged ? -correction : correction
+          );
+          this.bubbles.forEach((bubble) => {
+            if (isDragged(bubble)) {
+              bubble.position = v3.add(bubble.position, selectionCorrection);
+            }
+          });
+        }
+      }
+    }
   }
 
   createBond(first, second, deterministic = false) {
@@ -801,16 +872,23 @@ export class BubbleSimulation {
     const second = this.findBubble(bond.secondId);
     if (!first || !second) return;
     const delta = v3.sub(second.position, first.position);
-    const distance = Math.max(v3.length(delta), 1e-6);
-    const normal = v3.scale(delta, 1 / distance);
+    const rawDistance = v3.length(delta);
+    const normal = rawDistance > 1e-6 ? v3.scale(delta, 1 / rawDistance) : [1, 0, 0];
     const inverseMassFirst = 1 / this.calculateMass(first);
     const inverseMassSecond = 1 / this.calculateMass(second);
     const inverseMassSum = inverseMassFirst + inverseMassSecond;
     const weightFirst = inverseMassFirst / inverseMassSum;
     const weightSecond = inverseMassSecond / inverseMassSum;
+    const minimumBondDistance = this.minimumBondCenterDistance(first, second);
+    const constrainedDistance = Math.max(rawDistance, minimumBondDistance);
+    if (rawDistance < minimumBondDistance) {
+      const separation = minimumBondDistance - rawDistance;
+      first.position = v3.madd(first.position, normal, -separation * weightFirst);
+      second.position = v3.madd(second.position, normal, separation * weightSecond);
+    }
     const safeDeltaTime = Math.max(deltaTime, 1 / 240);
     const compliance = 1e-5 / (safeDeltaTime * safeDeltaTime);
-    const constraint = distance - bond.restDistance;
+    const constraint = constrainedDistance - Math.max(bond.restDistance, minimumBondDistance);
     const minimumRadius = Math.min(
       this.getPhysicalWorldRadius(first),
       this.getPhysicalWorldRadius(second)
@@ -1230,6 +1308,7 @@ export class BubbleSimulation {
             bubble.position = v3.add(target, this.interaction.groupDragOffsets[index] || [0, 0, 0]);
             bubble.velocity = [0, 0, 0];
           });
+          this.constrainEditorDraggedBubbles();
           this.rebuildEditorOverlapBonds();
         }
       }
