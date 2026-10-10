@@ -148,10 +148,9 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   letter-spacing: .01em;
   text-decoration: none;
 }
-/* at the top the corner stays empty; a way back appears once you scroll */
-.nameplate { opacity: 0; visibility: hidden; transition: opacity .25s, visibility .25s; font-size: 15px; font-weight: 500; color: var(--ash); }
-.nameplate:hover { color: var(--glint); }
-.scrolled .nameplate { opacity: 1; visibility: visible; }
+.nameplate { display: inline-flex; align-items: center; padding: 6px 0; }
+.nameplate img { display: block; width: 64px; height: 28px; image-rendering: pixelated; transition: transform .2s; }
+.nameplate:hover img { transform: translateX(2px); }
 
 
 .nav-links {
