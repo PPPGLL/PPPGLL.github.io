@@ -3,35 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="由 HarmonyOS OpenGL ES 3.1 完整移植的 WebGL2 实时泡泡渲染系统。">
+  <meta name="description" content="浏览器里的实时泡泡渲染：薄膜干涉、形变与泡沫物理。">
   <meta name="author" content="Gaole Pan">
   <meta name="robots" content="index, follow">
-  <meta name="theme-color" content="#05080e">
+  <meta name="theme-color" content="#04140f">
   <link rel="canonical" href="https://pppgll.github.io/bubble-demo/">
 
   <meta property="og:type" content="website">
-  <meta property="og:title" content="透明物体实时色散渲染系统 · WebGL2">
-  <meta property="og:description" content="由 HarmonyOS OpenGL ES 3.1 完整移植的 WebGL2 实时泡泡渲染系统。">
+  <meta property="og:title" content="泡泡渲染演示">
+  <meta property="og:description" content="浏览器里的实时泡泡渲染：薄膜干涉、形变与泡沫物理。">
   <meta property="og:url" content="https://pppgll.github.io/bubble-demo/">
   <meta property="og:image" content="https://pppgll.github.io/assets/bubble-demo-preview.png">
   <meta property="og:image:alt" content="WebGL2 实时泡泡渲染演示">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="透明物体实时色散渲染系统 · WebGL2">
-  <meta name="twitter:description" content="由 HarmonyOS OpenGL ES 3.1 完整移植的 WebGL2 实时泡泡渲染系统。">
+  <meta name="twitter:title" content="泡泡渲染演示">
+  <meta name="twitter:description" content="浏览器里的实时泡泡渲染：薄膜干涉、形变与泡沫物理。">
   <meta name="twitter:image" content="https://pppgll.github.io/assets/bubble-demo-preview.png">
 
-  <title>透明物体实时色散渲染系统 · WebGL2</title>
+  <title>泡泡渲染演示</title>
   <style>
     :root {
       color-scheme: dark;
-      --panel: rgba(6, 10, 17, .72);
-      --panel-solid: #0c121c;
+      --panel: rgba(5, 26, 19, .66);
+      --panel-solid: #0a241b;
       --line: rgba(255, 255, 255, .13);
-      --muted: #a6b1c2;
-      --text: #f3f7fc;
-      --accent: #6ea8ff;
-      --accent-soft: rgba(59, 130, 246, .4);
+      --muted: #a9c2b5;
+      --text: #f0f7f2;
+      --accent: #86e3ad;
+      --accent-soft: rgba(134, 227, 173, .26);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -40,7 +40,7 @@
       margin: 0;
       overflow: hidden;
       color: var(--text);
-      background: #05080e;
+      background: #04140f;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
       font-size: 12px;
     }
@@ -87,7 +87,7 @@
       border-color: var(--accent);
       outline: 0;
     }
-    #loading-label { color: #bfd7ff; }
+    #loading-label { color: #b9f0d2; }
 
     .control-panel {
       position: fixed;
@@ -120,8 +120,8 @@
       flex: none;
       border: 1px solid rgba(255,255,255,.6);
       border-radius: 50%;
-      background: conic-gradient(#6ea8ff, #d7a6ff, #ff9cb4, #eade70, #6ea8ff);
-      box-shadow: inset 0 0 0 5px rgba(6,10,17,.8);
+      background: conic-gradient(#86e3ad, #9fd0ff, #d7a6ff, #ffd58a, #86e3ad);
+      box-shadow: inset 0 0 0 5px rgba(5,26,19,.85);
     }
     .title-row strong {
       display: block;
@@ -158,7 +158,7 @@
     .panel-collapse {
       margin-left: auto;
       border: 0;
-      color: #d7e6fb;
+      color: #e3fbee;
       background: transparent;
       cursor: pointer;
     }
@@ -187,7 +187,7 @@
     }
     .row label { color: #eef4fb; white-space: nowrap; }
     .row output {
-      color: #bfd7ff;
+      color: #b9f0d2;
       font-variant-numeric: tabular-nums;
     }
     .slider-wrap {
@@ -220,7 +220,7 @@
     .switch-pair input { width: 30px; height: 17px; }
     .frequency {
       margin: 5px 0;
-      color: #bfd7ff;
+      color: #b9f0d2;
     }
     .actions {
       display: grid;
@@ -238,7 +238,7 @@
       cursor: pointer;
     }
     #launch { touch-action: none; }
-    .action.primary, .action.held { background: #326dcc; border-color: #6ea8ff; }
+    .action.primary, .action.held { background: #86e3ad; border-color: #86e3ad; }
     .placement-hint {
       margin: 5px 0 0;
       color: var(--muted);
@@ -250,17 +250,17 @@
       z-index: 3;
       display: none;
       pointer-events: none;
-      border: 1px solid #7cb4ff;
-      background: rgba(60, 130, 246, .16);
+      border: 1px solid #86e3ad;
+      background: rgba(134, 227, 173, .16);
       box-shadow: 0 0 0 1px rgba(255,255,255,.14) inset;
     }
     .selection-box.active { display: block; }
     .selected-panel {
       margin-top: 6px;
       padding: 7px 5px;
-      border: 1px solid rgba(110,168,255,.42);
+      border: 1px solid rgba(134,227,173,.38);
       border-radius: 6px;
-      background: rgba(30,70,125,.18);
+      background: rgba(134,227,173,.08);
     }
     .selected-panel[hidden], .selected-properties[hidden] { display: none; }
     [data-selected-mode][hidden], #multi-edit-actions[hidden], .snapshot-panel[hidden] { display: none; }
@@ -268,21 +268,21 @@
     .snapshot-panel {
       margin: 6px 0;
       padding: 6px;
-      border: 1px solid rgba(130,170,220,.3);
+      border: 1px solid rgba(134,227,173,.25);
       border-radius: 6px;
-      background: rgba(8,18,32,.72);
+      background: rgba(4,20,15,.6);
     }
     .snapshot-slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
     .snapshot-slot {
       min-width: 0;
       padding: 5px 0;
-      border: 1px solid rgba(170,190,220,.28);
+      border: 1px solid rgba(190,255,220,.22);
       border-radius: 4px;
       color: var(--muted);
       background: rgba(255,255,255,.04);
     }
-    .snapshot-slot.saved { color: #d9eaff; border-color: rgba(110,168,255,.55); }
-    .snapshot-slot.active { color: white; background: rgba(70,125,205,.55); }
+    .snapshot-slot.saved { color: #e3fbee; border-color: rgba(134,227,173,.55); }
+    .snapshot-slot.active { color: white; background: rgba(134,227,173,.35); }
     #snapshot-preview {
       display: block;
       width: 100%;
@@ -290,7 +290,7 @@
       margin-top: 5px;
       border-radius: 4px;
       object-fit: cover;
-      background: #07101b;
+      background: #04140f;
     }
     #snapshot-preview[hidden] { display: none; }
     .selected-heading {
@@ -298,7 +298,7 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 3px;
-      color: #d8e8ff;
+      color: #e3fbee;
     }
     .error {
       position: fixed;
@@ -307,7 +307,7 @@
       display: none;
       place-items: center;
       padding: 30px;
-      background: #07101b;
+      background: #04140f;
       text-align: center;
     }
     .error.visible { display: grid; }
@@ -323,7 +323,7 @@
       padding: 6px 10px;
       border-radius: 999px;
       color: white;
-      background: rgba(4,10,18,.72);
+      background: rgba(4,20,15,.72);
       pointer-events: none;
     }
     .fov-overlay[hidden] { display: none; }
@@ -341,6 +341,99 @@
       .title-row { display: none; }
       .panel { padding-top: 4px; }
     }
+
+    /* ---- refreshed look, shared with the homepage ---- */
+    @font-face {
+      font-family: "Bricolage Grotesque";
+      src: url("../assets/fonts/bricolage-var.woff2") format("woff2");
+      font-weight: 200 800;
+      font-stretch: 75% 100%;
+      font-display: swap;
+    }
+    html, body {
+      font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+    }
+    .control-panel {
+      width: 320px;
+      padding: 14px;
+      border-radius: 16px;
+      border-color: rgba(190, 255, 220, .2);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+      backdrop-filter: blur(22px) saturate(1.3);
+      -webkit-backdrop-filter: blur(22px) saturate(1.3);
+    }
+    .title-row { margin: 0 0 14px; gap: 10px; }
+    .title-mark { width: 26px; height: 26px; border: 0; box-shadow: inset 0 0 0 7px rgba(5, 26, 19, .9); }
+    .title-row strong { font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+    .title-row span { margin-top: 1px; font-size: 11px; letter-spacing: 0; }
+    .panel-collapse { width: 28px; height: 28px; border-radius: 50%; font-size: 16px; }
+    .panel-collapse:hover { background: rgba(255, 255, 255, .1); }
+
+    .tabs, .workspace-row {
+      gap: 0;
+      padding: 3px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, .28);
+    }
+    .workspace-row { margin-top: 8px; }
+    .tab, .mode-button {
+      min-height: 30px;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      font-weight: 500;
+      transition: background .15s, color .15s;
+    }
+    .tab:hover, .mode-button:hover { color: var(--text); }
+    .tab.active, .mode-button.active { color: #04140f; background: var(--accent); font-weight: 600; }
+
+    .edit-actions { gap: 6px; margin-top: 8px; grid-template-columns: repeat(3, 1fr); }
+    #multi-edit-actions { grid-template-columns: repeat(4, 1fr); }
+    .snapshot-panel .edit-actions { grid-template-columns: 1fr 1fr; }
+    .action, .edit-actions .action {
+      min-height: 32px;
+      border-radius: 999px;
+      border-color: rgba(190, 255, 220, .22);
+      background: rgba(255, 255, 255, .06);
+      font-size: 12px;
+      font-weight: 500;
+      transition: background .15s, border-color .15s;
+    }
+    .action:hover { background: rgba(255, 255, 255, .14); border-color: rgba(190, 255, 220, .45); }
+    .action.primary, .action.held { color: #04140f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+    .action.primary:hover { background: #a9f0c8; }
+    .placement-hint { margin: 10px 0 0; font-size: 11.5px; }
+
+    .panel { margin-top: 12px; padding: 10px 2px 2px; }
+    .row { min-height: 34px; gap: 10px; }
+    .row label { color: var(--text); }
+    .row output { text-align: right; font-size: 12px; }
+    .slider-wrap { grid-template-columns: 1fr 62px; gap: 8px; }
+    input[type="range"] { height: 4px; }
+    .frequency { margin: 8px 0 4px; color: var(--muted); font-size: 11.5px; }
+    .selected-panel, .snapshot-panel { margin-top: 10px; padding: 10px; border-radius: 12px; }
+
+    .topbar { gap: 6px; padding: max(14px, env(safe-area-inset-top)) 14px 0; }
+    .status, .back-link {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border-color: rgba(190, 255, 220, .2);
+      background: rgba(5, 26, 19, .6);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+      font-size: 12px;
+    }
+    #fps { font-variant-numeric: tabular-nums; }
+    .back-link { color: #04140f; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+    .back-link:hover, .back-link:focus-visible { background: #a9f0c8; border-color: #a9f0c8; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .error h1 { font: 700 28px "Bricolage Grotesque", sans-serif; }
+
+    @media (max-width: 680px) {
+      .control-panel { width: auto; padding: 10px; border-radius: 14px; }
+      .tab { font-size: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -349,7 +442,7 @@
   <div class="fov-overlay" id="fov-overlay" hidden>FOV 60°</div>
 
   <div class="topbar">
-    <span class="status" id="loading-label">正在初始化 HDR</span>
+    <span class="status" id="loading-label">正在载入环境贴图</span>
     <span class="status" id="counts">静态 · 0 泡泡 · 0 连接</span>
     <span class="status" id="fps">0.0 FPS</span>
     <a class="back-link" href="../#projects">返回主页</a>
@@ -358,7 +451,7 @@
   <aside class="control-panel" aria-label="泡泡渲染参数">
     <div class="title-row">
       <span class="title-mark" aria-hidden="true"></span>
-      <div><strong>透明物体实时色散渲染系统</strong><span>HarmonyOS OpenGL ES → WebGL2</span></div>
+      <div><strong>泡泡渲染演示</strong><span>薄膜干涉 · 实时物理</span></div>
       <button class="panel-collapse" id="panel-collapse" type="button" aria-label="收起参数面板">−</button>
     </div>
 
@@ -391,7 +484,7 @@
         <button class="action" id="snapshot-load" type="button">读取槽位</button>
       </div>
     </section>
-    <p class="placement-hint">双击空白处可放置泡泡</p>
+    <p class="placement-hint">双击空白处放置泡泡，拖动旋转视角</p>
 
     <section class="selected-panel" id="selected-panel" hidden>
       <div class="selected-heading"><strong id="selected-heading">选中泡泡</strong><span id="selected-count">1 个</span></div>
@@ -593,13 +686,13 @@
 
   <section class="error" id="error" role="alert">
     <div>
-      <h1>无法启动完整 WebGL2 渲染管线</h1>
-      <p>该移植需要 WebGL2 与浮点颜色缓冲。请使用最新版 Chrome、Edge、Firefox 或 Safari，并启用硬件加速。</p>
+      <h1>无法启动渲染</h1>
+      <p>这个演示需要 WebGL2 与浮点颜色缓冲。请使用最新版 Chrome、Edge、Firefox 或 Safari，并启用硬件加速。</p>
       <p id="error-detail"></p>
       <a class="back-link" href="../#projects">返回主页</a>
     </div>
   </section>
 
-  <script type="module" src="app.js?v=20260807-20"></script>
+  <script type="module" src="app.js?v=20261010-1"></script>
 </body>
 </html>

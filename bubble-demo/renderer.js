@@ -1,9 +1,9 @@
-import { v3, m3 } from "./math.js?v=20260807-20";
+import { v3, m3 } from "./math.js?v=20261010-1";
 import {
   createThinFilmLut,
   createFlowNoiseTexture,
   loadHdrTexture
-} from "./optics.js?v=20260807-20";
+} from "./optics.js?v=20261010-1";
 
 const ENVIRONMENTS = [
   "assets/envmap/sunny_vondelpark_4k.hdr"
@@ -742,17 +742,25 @@ export class BubbleRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA16F,
-      1,
-      1,
-      0,
-      gl.RGBA,
-      gl.FLOAT,
-      new Float32Array([.12, .18, .25, 1])
-    );
+    // A soft procedural sky, so the scene is lit while the HDR downloads
+    // (or if it never arrives) instead of showing a flat colour.
+    const w = 128, h = 64;
+    const data = new Float32Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      const v = y / (h - 1);                       // 0 = up, 1 = down
+      const up = Math.max(0, 1 - v * 2), down = Math.max(0, v * 2 - 1);
+      const glow = Math.exp(-Math.pow((v - .5) * 7, 2));
+      for (let x = 0; x < w; x++) {
+        const u = x / w;
+        const sun = Math.exp(-(Math.pow((u - .62) * 9, 2) + Math.pow((v - .30) * 9, 2)));
+        const i = (y * w + x) * 4;
+        data[i]     = .10 + .30 * up + .55 * glow + 6 * sun - .06 * down;
+        data[i + 1] = .22 + .42 * up + .62 * glow + 5.4 * sun - .10 * down;
+        data[i + 2] = .20 + .50 * up + .52 * glow + 4.2 * sun - .10 * down;
+        data[i + 3] = 1;
+      }
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, data);
     return texture;
   }
 
