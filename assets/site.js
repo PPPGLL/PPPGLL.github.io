@@ -164,7 +164,7 @@ void main() {
   float t = uTime;
   S0 = vec4( 0.00, 1.00 + 0.03 * sin(t * 0.6),        0.00, 1.00);   // chrome
   S1 = vec4(-1.80, 0.62 + 0.04 * sin(t * 0.7 + 1.0),  0.80, 0.60);   // emerald
-  S2 = vec4(-0.75, 0.47 + 0.04 * sin(t * 0.8 + 2.0),  2.30, 0.45);   // pearl
+  S2 = vec4(-0.75, 0.47 + 0.04 * sin(t * 0.8 + 2.0),  2.30, 0.45);   // porcelain
   S3 = vec4( 0.55, 0.24 + 0.03 * sin(t * 0.9 + 3.0),  2.10, 0.22);   // lamp
 
   float pitch = -0.26 + min(uScroll / uRes.y, 1.5) * 0.95;
@@ -215,11 +215,10 @@ void main() {
       vec3 alb = vec3(0.04, 0.58, 0.33);
       base = alb * (ndl * sh * 1.25 + amb + fill) + vec3(1.0) * spec * 0.9;
       tint = vec3(1.0); k = 0.05 + 0.6 * fres;
-    } else if (id == 2) {               // pearl with a thin-film sheen
-      vec3 film = 0.5 + 0.5 * cos(6.2832 * (ndv * 1.5 + vec3(0.00, 0.33, 0.67)));
-      vec3 alb = mix(vec3(0.92, 0.96, 0.93), film, 0.55);
-      base = alb * (ndl * sh * 0.95 + amb * 1.2 + fill) + vec3(1.0) * spec * 0.7;
-      tint = mix(vec3(1.0), film, 0.5); k = 0.16 + 0.6 * fres;
+    } else if (id == 2) {               // white porcelain
+      vec3 alb = vec3(0.90, 0.94, 0.91);
+      base = alb * (ndl * sh * 0.95 + amb * 1.2 + fill) + vec3(1.0) * spec * 0.8;
+      tint = vec3(1.0); k = 0.05 + 0.55 * fres;
     } else if (id == 3) {               // lamp
       base = lamp * (1.6 + 1.6 * ndv); tint = vec3(0.0); k = 0.0;
     } else {                            // floor
