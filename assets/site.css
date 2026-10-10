@@ -148,6 +148,11 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   letter-spacing: .01em;
   text-decoration: none;
 }
+/* at the top the corner stays empty; a way back appears once you scroll */
+.nameplate { opacity: 0; visibility: hidden; transition: opacity .25s, visibility .25s; font-size: 15px; font-weight: 500; color: var(--ash); }
+.nameplate:hover { color: var(--glint); }
+.scrolled .nameplate { opacity: 1; visibility: visible; }
+
 
 .nav-links {
   display: flex;
@@ -210,27 +215,30 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
 /* ---------- hero ---------- */
 
 .hero {
-  padding: clamp(48px, 9vh, 110px) 0 clamp(64px, 10vh, 120px);
+  display: flex;
+  align-items: flex-end;
+  min-height: calc(100svh - var(--nav-h));
+  padding: clamp(48px, 9vh, 110px) 0 clamp(48px, 8vh, 88px);
 }
+
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(220px, 26vw, 340px);
+  grid-template-columns: minmax(0, 1fr) clamp(180px, 20vw, 260px);
   gap: clamp(28px, 5vw, 80px);
   align-items: end;
 }
 
+/* the name is a quiet label; the sentence under it carries the hero */
 .hero h1 {
-  margin: 0;
+  margin: 0 0 14px;
+  color: var(--leaf);
   font-family: var(--display);
-  font-size: clamp(88px, 17.5vw, 260px);
-  font-weight: 800;
-  font-stretch: 75%;
-  line-height: .82;
-  letter-spacing: -.012em;
-  color: #c9f2dc;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: .01em;
 }
-.hero h1 span { display: block; }
 
 /* text lit by the same light as the surface */
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
@@ -249,17 +257,17 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   }
 }
 
-.hero-copy {
-  margin-top: clamp(28px, 4.5vw, 56px);
-  max-width: 40em;
-}
+.hero-copy { max-width: 44em; }
 
 .role {
-  margin: 0 0 .35em;
-  color: var(--glint);
+  margin: 0 0 .45em;
+  max-width: 16em;
+  color: #fff;
   font-family: var(--display);
-  font-size: clamp(21px, 2.3vw, 30px);
-  font-weight: 500;
+  font-size: clamp(30px, 4.2vw, 56px);
+  font-weight: 600;
+  font-stretch: 88%;
+  letter-spacing: -.01em;
   line-height: 1.25;
 }
 
@@ -563,7 +571,7 @@ footer {
 @media (max-width: 640px) {
   body { font-size: 17px; }
   .hero-grid { grid-template-columns: 1fr; align-items: start; }
-  .hero h1 { font-size: clamp(84px, 30vw, 150px); }
+  .hero { min-height: 0; }
   .portrait { width: min(62vw, 260px); grid-row: 1; }
   .entry.media { grid-template-columns: 1fr; gap: 18px; }
   .pubs .entry.media { grid-template-columns: 1fr; }

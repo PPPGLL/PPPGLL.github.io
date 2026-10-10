@@ -25,6 +25,13 @@
 
   document.querySelector("#year").textContent = new Date().getFullYear();
 
+  // the corner link only appears once the hero has scrolled away
+  const header = document.querySelector(".site-header");
+  const hero = document.querySelector(".hero");
+  const markScrolled = () => header.classList.toggle("scrolled", window.scrollY > hero.offsetHeight * 0.6);
+  window.addEventListener("scroll", markScrolled, { passive: true });
+  markScrolled();
+
   // highlight the section being read
   const navMap = new Map();
   navLinks.querySelectorAll("a[href^='#']").forEach((a) => {
