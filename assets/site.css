@@ -229,15 +229,15 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   align-items: end;
 }
 
-/* the name is a quiet label; the sentence under it carries the hero */
 .hero h1 {
-  margin: 0 0 14px;
-  color: var(--leaf);
+  margin: 0 0 .16em;
   font-family: var(--display);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: .01em;
+  font-size: clamp(48px, 8.75vw, 130px);   /* half of the first version */
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: .9;
+  letter-spacing: -.012em;
+  color: #c9f2dc;
 }
 
 /* text lit by the same light as the surface */
@@ -260,20 +260,17 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
 .hero-copy { max-width: 44em; }
 
 .role {
-  margin: 0 0 .45em;
-  max-width: 16em;
-  color: #fff;
+  margin: 0 0 .35em;
+  color: var(--glint);
   font-family: var(--display);
-  font-size: clamp(30px, 4.2vw, 56px);
-  font-weight: 600;
-  font-stretch: 88%;
-  letter-spacing: -.01em;
+  font-size: clamp(21px, 2.3vw, 30px);
+  font-weight: 500;
   line-height: 1.25;
 }
 
 .affiliation { color: var(--bone); margin-bottom: 1.3em; }
 .hero-copy, .section { text-shadow: 0 1px 14px rgba(2, 24, 17, .55); }
-.button { text-shadow: none; }
+.button, .lit-text { text-shadow: none; }
 .summary { font-size: 1.08em; margin-bottom: 1.4em; }
 
 .profile-links {
