@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Academic homepage of Gaole Pan — research in wet material rendering, microstructure reconstruction, and physically based rendering.">
+  <meta name="description" content="Academic homepage of Gaole Pan — research in wet material rendering, microstructure reconstruction, and microfacet models.">
   <meta name="author" content="Gaole Pan">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#06231a">
@@ -11,7 +11,7 @@
 
   <meta property="og:type" content="profile">
   <meta property="og:title" content="Gaole Pan | Academic Homepage">
-  <meta property="og:description" content="Research in wet material rendering, microstructure reconstruction, and physically based rendering.">
+  <meta property="og:description" content="Research in wet material rendering, microstructure reconstruction, and microfacet models.">
   <meta property="og:url" content="https://pppgll.github.io/">
   <meta property="og:image" content="https://pppgll.github.io/assets/gaole-pan.jpg">
   <meta property="og:image:alt" content="Gaole Pan giving a research presentation">
@@ -20,9 +20,10 @@
 
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Gaole Pan | Academic Homepage">
-  <meta name="twitter:description" content="Research in wet material rendering, microstructure reconstruction, and physically based rendering.">
+  <meta name="twitter:description" content="Research in wet material rendering, microstructure reconstruction, and microfacet models.">
   <meta name="twitter:image" content="https://pppgll.github.io/assets/gaole-pan.jpg">
 
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <title>Gaole Pan | Academic Homepage</title>
   <script type="application/ld+json">
     {
@@ -46,14 +47,14 @@
       "knowsAbout": [
         "Wet material rendering",
         "Microstructure reconstruction",
-        "Physically based rendering",
+        "Microfacet models",
         "Computer graphics"
       ]
     }
   </script>
   <link rel="preload" href="assets/fonts/bricolage-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/newsreader-var.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/site.css?v=4">
+  <link rel="stylesheet" href="assets/site.css?v=8">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
@@ -61,7 +62,7 @@
 
   <header class="site-header">
     <nav class="nav container" aria-label="Primary navigation">
-      <a class="nameplate" href="#top">Gaole Pan</a>
+      <a class="nameplate" href="#top" aria-label="Gaole Pan, back to top"><img src="assets/logo.svg" alt="" width="64" height="28"></a>
       <div class="nav-links" id="nav-links">
         <a href="#research">Research</a>
         <a href="#publications">Publications</a>
@@ -78,19 +79,18 @@
     <section class="hero" id="top">
       <div class="container">
         <div class="hero-grid">
-          <h1 class="lit-text" aria-label="Gaole Pan"><span>Gaole</span><span>Pan</span></h1>
+          <div class="hero-copy">
+            <h1 class="lit-text">Gaole Pan</h1>
+            <p class="role">I work on material appearance and rendering.</p>
+            <p class="affiliation">Ph.D. student at Nanjing University, supervised by Prof. Beibei Wang.</p>
+            <ul class="profile-links">
+              <li><a class="button solid" href="mailto:gaolepan@smail.nju.edu.cn">Email</a></li>
+              <li><a class="button" href="https://github.com/PPPGLL" target="_blank" rel="noreferrer">GitHub</a></li>
+            </ul>
+          </div>
           <div class="frame lit portrait">
             <img src="assets/gaole-pan.jpg" alt="Gaole Pan giving a research presentation" width="1920" height="1280">
           </div>
-        </div>
-
-        <div class="hero-copy">
-          <p class="role">I work on material appearance and rendering.</p>
-          <p class="affiliation">Ph.D. student at Nanjing University, advised by Prof. Beibei Wang.</p>
-          <ul class="profile-links">
-            <li><a class="button solid" href="mailto:gaolepan@smail.nju.edu.cn">Email</a></li>
-            <li><a class="button" href="https://github.com/PPPGLL" target="_blank" rel="noreferrer">GitHub</a></li>
-          </ul>
         </div>
       </div>
     </section>
@@ -102,37 +102,19 @@
         </div>
         <ul class="research-list">
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <defs>
-                <clipPath id="pores"><path d="M14 30q6 26 12 0zM40 30q8 34 16 0zM70 30q5 20 10 0zM92 30q7 30 14 0z"/></clipPath>
-              </defs>
-              <g clip-path="url(#pores)"><rect class="water" x="0" y="30" width="120" height="42"/></g>
-              <path class="solid" d="M2 30H14q6 26 12 0H40q8 34 16 0H70q5 20 10 0H92q7 30 14 0H118"/>
-              <path class="ray" pathLength="1" d="M26 2L60 30L94 2"/>
-            </svg>
+            <div class="frame lit tile"><canvas data-tile="wet" role="img" aria-label="A porous surface darkening as water soaks in"></canvas></div>
             <h3>Wet material rendering</h3>
             <p>Appearance models for wet, porous materials.</p>
           </li>
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <path class="solid" d="M2 50L14 38L24 48L36 24L48 44L60 32L72 52L86 28L98 42L118 34"/>
-              <path class="ray" pathLength="1" d="M14 2V38M36 2V24M60 2V32M86 2V28M98 2V42"/>
-              <circle class="dot" style="--i:0" cx="14" cy="38" r="2.6"/>
-              <circle class="dot" style="--i:1" cx="36" cy="24" r="2.6"/>
-              <circle class="dot" style="--i:2" cx="60" cy="32" r="2.6"/>
-              <circle class="dot" style="--i:3" cx="86" cy="28" r="2.6"/>
-              <circle class="dot" style="--i:4" cx="98" cy="42" r="2.6"/>
-            </svg>
+            <div class="frame lit tile"><canvas data-tile="recon" role="img" aria-label="A surface scan turning into a normal map"></canvas></div>
             <h3>Microstructure reconstruction</h3>
             <p>Recovering surface microstructure from images.</p>
           </li>
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <path class="solid" d="M4 62L34 28L60 62L88 24L116 62"/>
-              <path class="ray" pathLength="1" d="M70 2L49 47.6L71.2 46.8L84 2"/>
-            </svg>
-            <h3>Physically based rendering</h3>
-            <p>Light transport in complex materials.</p>
+            <div class="frame lit tile"><canvas data-tile="facet" role="img" aria-label="Light rays bouncing between microfacets"></canvas></div>
+            <h3>Microfacet models</h3>
+            <p>Multiple scattering of light between microfacets.</p>
           </li>
         </ul>
       </div>
@@ -256,6 +238,6 @@
     </div>
   </footer>
 
-  <script src="assets/site.js?v=4" defer></script>
+  <script src="assets/site.js?v=8" defer></script>
 </body>
 </html>

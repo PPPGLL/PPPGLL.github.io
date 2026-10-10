@@ -148,6 +148,10 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   letter-spacing: .01em;
   text-decoration: none;
 }
+.nameplate { display: inline-flex; align-items: center; padding: 6px 0; }
+.nameplate img { display: block; width: 64px; height: 28px; image-rendering: pixelated; transition: transform .2s; }
+.nameplate:hover img { transform: translateX(2px); }
+
 
 .nav-links {
   display: flex;
@@ -210,27 +214,30 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
 /* ---------- hero ---------- */
 
 .hero {
-  padding: clamp(48px, 9vh, 110px) 0 clamp(64px, 10vh, 120px);
+  display: flex;
+  align-items: flex-end;
+  min-height: calc(100svh - var(--nav-h));
+  padding: clamp(48px, 9vh, 110px) 0 clamp(48px, 8vh, 88px);
 }
+
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(220px, 26vw, 340px);
+  grid-template-columns: minmax(0, 1fr) clamp(180px, 20vw, 260px);
   gap: clamp(28px, 5vw, 80px);
   align-items: end;
 }
 
 .hero h1 {
-  margin: 0;
+  margin: 0 0 .16em;
   font-family: var(--display);
-  font-size: clamp(88px, 17.5vw, 260px);
+  font-size: clamp(48px, 8.75vw, 130px);   /* half of the first version */
   font-weight: 800;
   font-stretch: 75%;
-  line-height: .82;
+  line-height: .9;
   letter-spacing: -.012em;
   color: #c9f2dc;
 }
-.hero h1 span { display: block; }
 
 /* text lit by the same light as the surface */
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
@@ -249,10 +256,7 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
   }
 }
 
-.hero-copy {
-  margin-top: clamp(28px, 4.5vw, 56px);
-  max-width: 40em;
-}
+.hero-copy { max-width: 44em; }
 
 .role {
   margin: 0 0 .35em;
@@ -265,7 +269,7 @@ a:hover { color: var(--glint); text-decoration-color: var(--glint); }
 
 .affiliation { color: var(--bone); margin-bottom: 1.3em; }
 .hero-copy, .section { text-shadow: 0 1px 14px rgba(2, 24, 17, .55); }
-.button { text-shadow: none; }
+.button, .lit-text { text-shadow: none; }
 .summary { font-size: 1.08em; margin-bottom: 1.4em; }
 
 .profile-links {
@@ -423,30 +427,9 @@ h3 {
 .research-list > li:last-child { padding-right: 0; }
 .research-list p { margin: 0; color: var(--ash); font-size: 17px; line-height: 1.5; }
 
-.glyph {
-  display: block;
-  width: 120px;
-  height: 72px;
-  margin-bottom: 22px;
-  overflow: visible;
-}
-.glyph .solid { fill: none; stroke: var(--ash); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-.glyph .ray { fill: none; stroke: var(--leaf); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
-.glyph .water { fill: var(--malachite); opacity: .75; transform: translateY(30px); }
-.glyph .dot { fill: var(--leaf); opacity: 0; }
-
-.glyph.in .ray { animation: trace 1.5s cubic-bezier(.5, 0, .2, 1) .15s forwards; }
-.glyph.in .water { animation: soak 1.8s cubic-bezier(.3, 0, .2, 1) .15s forwards; }
-.glyph.in .dot { animation: sample .3s ease-out forwards; animation-delay: calc(.2s + var(--i) * .13s); }
-
-/* hovering an area replays its diagram */
-.research-list > li:hover .ray { animation: trace 1.5s cubic-bezier(.5, 0, .2, 1) infinite; }
-.research-list > li:hover .water { animation: soak 2.2s cubic-bezier(.3, 0, .2, 1) infinite alternate; }
-.research-list > li:hover .dot { animation: sample 1.6s ease-out infinite; animation-delay: calc(var(--i) * .13s); }
-
-@keyframes trace { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-@keyframes soak { from { transform: translateY(30px); } to { transform: translateY(6px); } }
-@keyframes sample { 0% { opacity: 0; transform: translateY(-6px); } 20%, 100% { opacity: 1; transform: none; } }
+/* small live renders, one per research area */
+.tile { height: 140px; margin-bottom: 20px; background: #04140f; }
+.tile canvas { display: block; width: 100%; height: 100%; }
 
 /* ---------- lists of entries ---------- */
 
@@ -563,7 +546,7 @@ footer {
 @media (max-width: 640px) {
   body { font-size: 17px; }
   .hero-grid { grid-template-columns: 1fr; align-items: start; }
-  .hero h1 { font-size: clamp(84px, 30vw, 150px); }
+  .hero { min-height: 0; }
   .portrait { width: min(62vw, 260px); grid-row: 1; }
   .entry.media { grid-template-columns: 1fr; gap: 18px; }
   .pubs .entry.media { grid-template-columns: 1fr; }
@@ -575,8 +558,5 @@ footer {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .glyph .ray { stroke-dashoffset: 0; animation: none !important; }
-  .glyph .water { transform: translateY(6px); animation: none !important; }
-  .glyph .dot { opacity: 1; animation: none !important; }
   .nav-links a::after, .button, a { transition: none; }
 }
