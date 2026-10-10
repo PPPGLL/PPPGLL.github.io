@@ -427,30 +427,9 @@ h3 {
 .research-list > li:last-child { padding-right: 0; }
 .research-list p { margin: 0; color: var(--ash); font-size: 17px; line-height: 1.5; }
 
-.glyph {
-  display: block;
-  width: 120px;
-  height: 72px;
-  margin-bottom: 22px;
-  overflow: visible;
-}
-.glyph .solid { fill: none; stroke: var(--ash); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-.glyph .ray { fill: none; stroke: var(--leaf); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
-.glyph .water { fill: var(--malachite); opacity: .75; transform: translateY(30px); }
-.glyph .dot { fill: var(--leaf); opacity: 0; }
-
-.glyph.in .ray { animation: trace 1.5s cubic-bezier(.5, 0, .2, 1) .15s forwards; }
-.glyph.in .water { animation: soak 1.8s cubic-bezier(.3, 0, .2, 1) .15s forwards; }
-.glyph.in .dot { animation: sample .3s ease-out forwards; animation-delay: calc(.2s + var(--i) * .13s); }
-
-/* hovering an area replays its diagram */
-.research-list > li:hover .ray { animation: trace 1.5s cubic-bezier(.5, 0, .2, 1) infinite; }
-.research-list > li:hover .water { animation: soak 2.2s cubic-bezier(.3, 0, .2, 1) infinite alternate; }
-.research-list > li:hover .dot { animation: sample 1.6s ease-out infinite; animation-delay: calc(var(--i) * .13s); }
-
-@keyframes trace { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-@keyframes soak { from { transform: translateY(30px); } to { transform: translateY(6px); } }
-@keyframes sample { 0% { opacity: 0; transform: translateY(-6px); } 20%, 100% { opacity: 1; transform: none; } }
+/* small live renders, one per research area */
+.tile { height: 140px; margin-bottom: 20px; background: #04140f; }
+.tile canvas { display: block; width: 100%; height: 100%; }
 
 /* ---------- lists of entries ---------- */
 
@@ -579,8 +558,5 @@ footer {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .glyph .ray { stroke-dashoffset: 0; animation: none !important; }
-  .glyph .water { transform: translateY(6px); animation: none !important; }
-  .glyph .dot { opacity: 1; animation: none !important; }
   .nav-links a::after, .button, a { transition: none; }
 }

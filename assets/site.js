@@ -424,19 +424,300 @@ void main() {
     frames.forEach((el) => seen.observe(el));
   }
 
-  /* ---------------- research diagrams ---------------- */
+  /* ---------------- research tiles ---------------- */
+  // Three small live renders. Two are fragment shaders, one is a 2D ray tracer.
 
-  const glyphs = document.querySelectorAll(".glyph");
-  if (!reduceMotion && "IntersectionObserver" in window) {
-    const draw = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        draw.unobserve(entry.target);
-        entry.target.classList.add("in");
-      });
-    }, { threshold: 0.6 });
-    glyphs.forEach((g) => draw.observe(g));
-  } else {
-    glyphs.forEach((g) => g.classList.add("in"));
+  const TILE_COMMON = `
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime;
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 5; i++) { s += a * noise(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= 0.5; }
+  return s;
+}
+float ggx(float ndh, float alpha) {
+  float a2 = alpha * alpha, d = ndh * ndh * (a2 - 1.0) + 1.0;
+  return a2 / (3.14159265 * d * d);
+}
+vec3 finish(vec3 c) {
+  c = c * (2.51 * c + 0.03) / (c * (2.43 * c + 0.59) + 0.14);
+  return pow(clamp(c, 0.0, 1.0), vec3(0.4545)) + (hash(gl_FragCoord.xy) - 0.5) / 255.0;
+}`;
+
+  // Wet porous material: a damp patch spreads through terracotta, then dries.
+  const TILE_WET = TILE_COMMON + `
+float height(vec2 q) { return fbm(q) - 0.18 * smoothstep(0.55, 0.75, noise(q * 2.3 + 7.0)); }
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes.y;
+  vec2 q = uv * 7.0;
+  float e = 0.04, h = height(q);
+  vec3 n = normalize(vec3((h - height(q + vec2(e, 0.0))) / e * 1.5, (h - height(q + vec2(0.0, e))) / e * 1.5, 1.0));
+
+  vec2 c = vec2(uRes.x / uRes.y * 0.5, 0.5);
+  float r = 0.10 + 0.62 * (0.5 + 0.5 * sin(uTime * 0.45));
+  float d = length(uv - c) + (fbm(uv * 3.5 + 3.0) - 0.5) * 0.45;
+  float wet = smoothstep(r, r - 0.10, d);
+
+  vec3 dry = vec3(0.50, 0.27, 0.17) * (0.70 + 0.6 * h);
+  vec3 alb = mix(dry, dry * dry * 1.9, wet);                 // wet: darker and more saturated
+  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), wet * 0.55));     // water fills the pores
+  float alpha = mix(0.55, 0.16, wet);
+
+  float a = uTime * 0.25;
+  vec3 L = normalize(vec3(-0.55 + 0.25 * sin(a), 0.60 + 0.2 * cos(a), 0.62));
+  vec3 V = vec3(0.0, 0.0, 1.0);
+  float ndl = max(dot(n, L), 0.0);
+  float ndh = max(dot(n, normalize(L + V)), 0.0);
+  float pit = smoothstep(0.30, 0.42, h);                      // pores stay in shadow
+  vec3 col = alb * (ndl * 0.95 * mix(0.45, 1.0, pit) + 0.14);
+  col += vec3(1.0, 0.97, 0.92) * min(ggx(ndh, alpha), 14.0) * ndl * mix(0.012, 0.085, wet);
+  gl_FragColor = vec4(finish(col * 0.72), 1.0);
+}`;
+
+  // Reconstruction: a scan line turns a lit photograph of a surface into its normal map.
+  const TILE_RECON = TILE_COMMON + `
+float height(vec2 q) { return fbm(q) + 0.22 * abs(sin(q.x * 2.6 + fbm(q * 0.7) * 5.0)); }
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes.y;
+  float aspect = uRes.x / uRes.y;
+  vec2 q = uv * 6.0 + 11.0;
+  float e = 0.04, h = height(q);
+  vec3 n = normalize(vec3((h - height(q + vec2(e, 0.0))) / e * 1.3, (h - height(q + vec2(0.0, e))) / e * 1.3, 1.0));
+
+  vec3 L = normalize(vec3(0.60, 0.35, 0.72));
+  float ndl = max(dot(n, L), 0.0);
+  float ndh = max(dot(n, normalize(L + vec3(0.0, 0.0, 1.0))), 0.0);
+  vec3 photo = vec3(0.55, 0.58, 0.55) * (ndl * 0.95 + 0.10) + vec3(1.0) * min(ggx(ndh, 0.35), 8.0) * ndl * 0.05;
+
+  vec3 normals = n * 0.5 + 0.5;
+  normals = mix(normals, vec3(dot(normals, vec3(0.333))), 0.08);
+
+  float sx = aspect * (0.5 + 0.56 * sin(uTime * 0.5));
+  float side = smoothstep(-0.004, 0.004, sx - uv.x);          // already scanned on the left
+  vec3 col = mix(photo * 0.7, normals * 0.8, side);
+  float beam = exp(-abs(uv.x - sx) * 60.0);
+  col += vec3(0.75, 1.0, 0.85) * beam * 0.9;
+  gl_FragColor = vec4(finish(col), 1.0);
+}`;
+
+  const makeShaderTile = (canvas, frag) => {
+    let g;
+    try { g = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" }); } catch (err) { g = null; }
+    if (!g) return null;
+    const compile = (type, src) => {
+      const sh = g.createShader(type);
+      g.shaderSource(sh, src);
+      g.compileShader(sh);
+      if (!g.getShaderParameter(sh, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(sh));
+      return sh;
+    };
+    let uRes, uTime;
+    try {
+      const prog = g.createProgram();
+      g.attachShader(prog, compile(g.VERTEX_SHADER, VERT));
+      g.attachShader(prog, compile(g.FRAGMENT_SHADER, frag));
+      g.linkProgram(prog);
+      if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+      g.useProgram(prog);
+      g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer());
+      g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), g.STATIC_DRAW);
+      const loc = g.getAttribLocation(prog, "p");
+      g.enableVertexAttribArray(loc);
+      g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+      uRes = g.getUniformLocation(prog, "uRes");
+      uTime = g.getUniformLocation(prog, "uTime");
+    } catch (err) {
+      console.warn("Research tile shader unavailable:", err.message);
+      return null;
+    }
+    return {
+      resize(w, h) { g.viewport(0, 0, w, h); },
+      draw(t) {
+        g.uniform2f(uRes, canvas.width, canvas.height);
+        g.uniform1f(uTime, t);
+        g.drawArrays(g.TRIANGLES, 0, 3);
+      }
+    };
+  };
+
+  // Microfacets: rays traced in 2D against a jagged profile, bouncing until they escape.
+  const makeFacetTile = (canvas) => {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    let W = 1, H = 1, verts = [], rays = [], lastSpawn = -10, seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+
+    const build = () => {
+      seed = 7;
+      verts = [];
+      const count = 13;
+      for (let i = 0; i <= count; i++) {
+        const peak = i % 2 === 0;
+        const x = (i / count) * W + (i > 0 && i < count ? (rnd() - 0.5) * W / count * 0.5 : 0);
+        const y = peak ? H * (0.50 + rnd() * 0.12) : H * (0.78 + rnd() * 0.12);
+        verts.push([x, y]);
+      }
+    };
+
+    const trace = (ox, oy, dx, dy) => {
+      const pts = [[ox, oy]];
+      let energy = [1];
+      for (let bounce = 0; bounce < 7; bounce++) {
+        let best = Infinity, bn = null;
+        for (let i = 0; i < verts.length - 1; i++) {
+          const [ax, ay] = verts[i], [bx, by] = verts[i + 1];
+          const ex = bx - ax, ey = by - ay;
+          const det = dx * ey - dy * ex;
+          if (Math.abs(det) < 1e-9) continue;
+          const t = ((ax - ox) * ey - (ay - oy) * ex) / det;
+          const u = ((ax - ox) * dy - (ay - oy) * dx) / det;
+          if (t > 1e-3 && u >= 0 && u <= 1 && t < best) {
+            best = t;
+            const len = Math.hypot(ex, ey);
+            bn = [ey / len, -ex / len];
+            if (bn[1] > 0) bn = [-bn[0], -bn[1]];
+          }
+        }
+        if (!bn) {                       // escaped: run off the canvas
+          const far = Math.max(W, H) * 1.5;
+          pts.push([ox + dx * far, oy + dy * far]);
+          break;
+        }
+        ox += dx * best; oy += dy * best;
+        pts.push([ox, oy]);
+        const dn = dx * bn[0] + dy * bn[1];
+        dx -= 2 * dn * bn[0]; dy -= 2 * dn * bn[1];
+        energy.push(energy[energy.length - 1] * 0.78);
+      }
+      const lens = [];
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); lens.push(l); total += l; }
+      return { pts, lens, total, energy };
+    };
+
+    const spawn = (t) => {
+      const ang = (rnd() < 0.5 ? -1 : 1) * (0.35 + rnd() * 0.75);
+      rays.push(Object.assign(trace(W * (0.12 + rnd() * 0.76), -4, Math.sin(ang), Math.cos(ang)), { born: t }));
+      if (rays.length > 7) rays.shift();
+    };
+
+    const drawSurface = () => {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, "#0b3a2b");
+      sky.addColorStop(1, "#04140f");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      verts.forEach(([x, y]) => ctx.lineTo(x, y));
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      const body = ctx.createLinearGradient(0, H * 0.45, 0, H);
+      body.addColorStop(0, "#2f8f6c");
+      body.addColorStop(1, "#0d3f2f");
+      ctx.fillStyle = body;
+      ctx.fill();
+
+      // each facet is lit by how squarely it faces the light
+      const lx = -0.55, ly = -0.83;
+      ctx.lineCap = "round";
+      for (let i = 0; i < verts.length - 1; i++) {
+        const [ax, ay] = verts[i], [bx, by] = verts[i + 1];
+        const len = Math.hypot(bx - ax, by - ay);
+        let nx = (by - ay) / len, ny = -(bx - ax) / len;
+        if (ny > 0) { nx = -nx; ny = -ny; }
+        const lit = Math.max(0, nx * lx + ny * ly);
+        ctx.strokeStyle = `rgba(${Math.round(150 + 90 * lit)}, ${Math.round(225 + 30 * lit)}, ${Math.round(190 + 50 * lit)}, ${0.35 + 0.65 * lit})`;
+        ctx.lineWidth = Math.max(1.5, H * 0.014);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      }
+    };
+
+    const drawRay = (ray, t, whole) => {
+      const speed = H * 2.4;
+      const age = t - ray.born;
+      const head = whole ? ray.total : Math.min(age * speed, ray.total);
+      const fade = whole ? 1 : Math.max(0, 1 - Math.max(0, age - ray.total / speed) / 1.4);
+      if (fade <= 0) return;
+      let walked = 0;
+      ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(190, 255, 220, .9)";
+      for (let i = 0; i < ray.lens.length && walked < head; i++) {
+        const part = Math.min(1, (head - walked) / ray.lens[i]);
+        const [ax, ay] = ray.pts[i], [bx, by] = ray.pts[i + 1];
+        const e = ray.energy[i];
+        ctx.shadowBlur = H * 0.08 * e;
+        ctx.strokeStyle = `rgba(${Math.round(190 + 65 * e)}, 255, ${Math.round(205 + 50 * e)}, ${(0.25 + 0.75 * e) * fade})`;
+        ctx.lineWidth = Math.max(1.2, H * 0.016 * (0.5 + 0.5 * e));
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + (bx - ax) * part, ay + (by - ay) * part); ctx.stroke();
+        if (part >= 1 && i < ray.lens.length - 1) {            // glint where it hits
+          ctx.fillStyle = `rgba(255, 255, 255, ${0.9 * e * fade})`;
+          ctx.beginPath(); ctx.arc(bx, by, Math.max(1.5, H * 0.02 * e), 0, 6.2832); ctx.fill();
+        }
+        walked += ray.lens[i];
+      }
+      ctx.shadowBlur = 0;
+    };
+
+    return {
+      resize(w, h) { W = w; H = h; build(); rays = []; lastSpawn = -10; },
+      draw(t, still) {
+        drawSurface();
+        if (still) {
+          seed = 21;
+          for (let i = 0; i < 3; i++) drawRay(trace(W * (0.2 + 0.3 * i), -4, i === 1 ? -0.45 : 0.5, 0.87), 0, true);
+          return;
+        }
+        if (t - lastSpawn > 0.85) { spawn(t); lastSpawn = t; }
+        rays.forEach((ray) => drawRay(ray, t, false));
+      }
+    };
+  };
+
+  const tiles = [];
+  document.querySelectorAll("canvas[data-tile]").forEach((canvas) => {
+    const kind = canvas.dataset.tile;
+    const impl = kind === "facet" ? makeFacetTile(canvas) : makeShaderTile(canvas, kind === "wet" ? TILE_WET : TILE_RECON);
+    if (!impl) { canvas.parentElement.hidden = true; return; }
+    const tile = { canvas, impl, visible: false };
+    const fit = () => {
+      const r = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.max(2, Math.round(r.width * dpr));
+      canvas.height = Math.max(2, Math.round(r.height * dpr));
+      impl.resize(canvas.width, canvas.height);
+      impl.draw(reduceMotion ? 1.6 : (performance.now() - start) / 1000, reduceMotion);
+    };
+    tile.fit = fit;
+    fit();
+    tiles.push(tile);
+  });
+
+  if (tiles.length) {
+    window.addEventListener("resize", () => tiles.forEach((t) => t.fit()));
+    if (!reduceMotion && "IntersectionObserver" in window) {
+      let tileLoop = false, lastTile = 0;
+      const tick = (now) => {
+        if (!tiles.some((t) => t.visible) || document.hidden) { tileLoop = false; return; }
+        requestAnimationFrame(tick);
+        if (now - lastTile < 30) return;
+        lastTile = now;
+        tiles.forEach((t) => { if (t.visible) t.impl.draw((now - start) / 1000, false); });
+      };
+      const wake = () => { if (!tileLoop && tiles.some((t) => t.visible) && !document.hidden) { tileLoop = true; requestAnimationFrame(tick); } };
+      const watch = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => { const t = tiles.find((x) => x.canvas === entry.target); if (t) t.visible = entry.isIntersecting; });
+        wake();
+      }, { rootMargin: "80px" });
+      tiles.forEach((t) => watch.observe(t.canvas));
+      document.addEventListener("visibilitychange", wake);
+    }
   }
 })();

@@ -54,7 +54,7 @@
   </script>
   <link rel="preload" href="assets/fonts/bricolage-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/newsreader-var.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/site.css?v=7">
+  <link rel="stylesheet" href="assets/site.css?v=8">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
@@ -102,35 +102,17 @@
         </div>
         <ul class="research-list">
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <defs>
-                <clipPath id="pores"><path d="M14 30q6 26 12 0zM40 30q8 34 16 0zM70 30q5 20 10 0zM92 30q7 30 14 0z"/></clipPath>
-              </defs>
-              <g clip-path="url(#pores)"><rect class="water" x="0" y="30" width="120" height="42"/></g>
-              <path class="solid" d="M2 30H14q6 26 12 0H40q8 34 16 0H70q5 20 10 0H92q7 30 14 0H118"/>
-              <path class="ray" pathLength="1" d="M26 2L60 30L94 2"/>
-            </svg>
+            <div class="frame lit tile"><canvas data-tile="wet" role="img" aria-label="A porous surface darkening as water soaks in"></canvas></div>
             <h3>Wet material rendering</h3>
             <p>Appearance models for wet, porous materials.</p>
           </li>
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <path class="solid" d="M2 50L14 38L24 48L36 24L48 44L60 32L72 52L86 28L98 42L118 34"/>
-              <path class="ray" pathLength="1" d="M14 2V38M36 2V24M60 2V32M86 2V28M98 2V42"/>
-              <circle class="dot" style="--i:0" cx="14" cy="38" r="2.6"/>
-              <circle class="dot" style="--i:1" cx="36" cy="24" r="2.6"/>
-              <circle class="dot" style="--i:2" cx="60" cy="32" r="2.6"/>
-              <circle class="dot" style="--i:3" cx="86" cy="28" r="2.6"/>
-              <circle class="dot" style="--i:4" cx="98" cy="42" r="2.6"/>
-            </svg>
+            <div class="frame lit tile"><canvas data-tile="recon" role="img" aria-label="A surface scan turning into a normal map"></canvas></div>
             <h3>Microstructure reconstruction</h3>
             <p>Recovering surface microstructure from images.</p>
           </li>
           <li>
-            <svg class="glyph" viewBox="0 0 120 72" aria-hidden="true" focusable="false">
-              <path class="solid" d="M4 62L34 28L60 62L88 24L116 62"/>
-              <path class="ray" pathLength="1" d="M70 2L49 47.6L71.2 46.8L84 2"/>
-            </svg>
+            <div class="frame lit tile"><canvas data-tile="facet" role="img" aria-label="Light rays bouncing between microfacets"></canvas></div>
             <h3>Microfacet models</h3>
             <p>Multiple scattering of light between microfacets.</p>
           </li>
@@ -256,6 +238,6 @@
     </div>
   </footer>
 
-  <script src="assets/site.js?v=7" defer></script>
+  <script src="assets/site.js?v=8" defer></script>
 </body>
 </html>
