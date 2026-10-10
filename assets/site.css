@@ -462,6 +462,10 @@ h3 {
   align-items: start;
 }
 .entry.media .frame { aspect-ratio: 2 / 1; }
+/* publication figures keep their own proportions, so nothing is cropped */
+.pubs .entry.media { grid-template-columns: minmax(0, 420px) minmax(0, 1fr); align-items: center; }
+.pubs .entry.media .frame { aspect-ratio: auto; }
+.pubs .entry.media .frame img { height: auto; }
 
 .venue {
   display: flex;
@@ -562,6 +566,7 @@ footer {
   .hero h1 { font-size: clamp(84px, 30vw, 150px); }
   .portrait { width: min(62vw, 260px); grid-row: 1; }
   .entry.media { grid-template-columns: 1fr; gap: 18px; }
+  .pubs .entry.media { grid-template-columns: 1fr; }
   .entry.school { grid-template-columns: 1fr; }
   .footer-inner { flex-direction: column; gap: 4px; }
 }
