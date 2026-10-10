@@ -1,6 +1,6 @@
 /* Gaole Pan — homepage behaviour
-   1. A rough microfacet surface with wet patches, shaded in WebGL (GGX).
-      The pointer is the light. Without a pointer, the light drifts.
+   1. A small ray-traced scene in WebGL: spheres on a glossy floor under a
+      green sky. The pointer moves the sun. Without a pointer, it drifts.
    2. The same light position drives CSS highlights on text and frames.
    3. Images clear bucket by bucket, like a renderer finishing a frame. */
 (() => {
@@ -89,6 +89,13 @@ uniform float uTime;
 uniform float uScroll;
 uniform vec2  uLight;   // css px, origin top-left
 
+// A small ray-traced still life: four spheres on a glossy checkered floor
+// under a green sky. The pointer moves the sun; scrolling tilts the camera
+// up into the sky so the text further down sits on a calm backdrop.
+
+vec3 L;                 // sun direction
+vec4 S0, S1, S2, S3;    // spheres: xyz centre, w radius
+
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
   p += dot(p, p + 45.32);
@@ -100,70 +107,146 @@ float noise(vec2 p) {
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
-float fbm(vec2 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 5; i++) {
-    s += a * noise(p);
-    p = mat2(1.6, 1.2, -1.2, 1.6) * p;
-    a *= 0.5;
-  }
-  return s;
+
+vec3 sky(vec3 d) {
+  float h = d.y;
+  vec3 zenith  = vec3(0.012, 0.085, 0.072);
+  vec3 horizon = vec3(0.110, 0.340, 0.255);
+  vec3 c = mix(horizon, zenith, smoothstep(-0.08, 0.70, h));
+  float s = max(dot(d, L), 0.0);
+  c += vec3(1.00, 0.93, 0.76) * pow(s, 90.0) * 1.6;      // sun
+  c += vec3(0.45, 0.85, 0.60) * pow(s, 6.0) * 0.30;      // its halo
+  // slow ribbons of light high in the sky
+  float a = atan(d.x, -d.z);
+  float n = noise(vec2(a * 2.2 + uTime * 0.02, h * 2.6 - uTime * 0.013))
+          + 0.5 * noise(vec2(a * 5.0 - uTime * 0.03, h * 6.0));
+  c += vec3(0.10, 0.62, 0.44) * smoothstep(0.75, 1.25, n) * smoothstep(0.10, 0.55, h) * 0.55;
+  return c;
 }
-float ggx(float ndh, float alpha) {
-  float a2 = alpha * alpha;
-  float d = ndh * ndh * (a2 - 1.0) + 1.0;
-  return a2 / (3.14159265 * d * d);
+
+float hitSphere(vec3 ro, vec3 rd, vec4 s) {
+  vec3 oc = ro - s.xyz;
+  float b = dot(oc, rd);
+  float c = dot(oc, oc) - s.w * s.w;
+  float h = b * b - c;
+  if (h < 0.0) return -1.0;
+  return -b - sqrt(h);
+}
+
+// soft shadow of one sphere along a ray towards the sun
+float shade1(vec3 p, vec4 s) {
+  vec3 oc = s.xyz - p;
+  float t = dot(oc, L);
+  if (t < 0.0) return 1.0;
+  float d = length(oc - L * t);
+  return smoothstep(s.w * 0.80, s.w * 1.30, d);
+}
+float shadow(vec3 p) {
+  return shade1(p, S0) * shade1(p, S1) * shade1(p, S2);
+}
+float occ1(vec3 p, vec3 n, vec4 s) {
+  vec3 d = s.xyz - p;
+  float l = length(d);
+  return 1.0 - max(dot(n, d / l), 0.0) * (s.w * s.w) / (l * l) * 0.9;
 }
 
 void main() {
-  vec2 px = gl_FragCoord.xy * uScale;
-  px.y = uRes.y - px.y;
-  vec2 world = px + vec2(0.0, uScroll * 0.4);
+  vec2 frag = gl_FragCoord.xy * uScale;
+  float aspect = uRes.x / uRes.y;
+  vec2 uv = (frag - 0.5 * uRes) / uRes.y;
+  uv *= clamp(1.3 / aspect, 1.0, 2.4);                    // pull back on tall screens
+  uv.x -= 0.20 * clamp(aspect - 0.9, 0.0, 1.0);
+  uv.y += 0.17;          // sit the scene right of the text
 
-  // height field of the rough surface
-  vec2 q = world / 70.0;
-  float e = 0.045;
-  float h  = fbm(q);
-  float hx = fbm(q + vec2(e, 0.0));
-  float hy = fbm(q + vec2(0.0, e));
-  vec3 n = normalize(vec3((h - hx) / e * 1.25, (h - hy) / e * 1.25, 1.0));
+  vec2 m = uLight / uRes;                                 // 0..1, y down
+  L = normalize(vec3((m.x - 0.5) * 2.4, 0.95 + (0.5 - m.y) * 0.9, 0.85));
 
-  // water collects where the surface is low
-  float level = 0.40 + 0.24 * noise(world / 460.0 + vec2(uTime * 0.012, -uTime * 0.008));
-  float wet = smoothstep(0.0, 0.07, level - h);
-  n = normalize(mix(n, vec3(0.0, 0.0, 1.0), wet * 0.94));
-  float alpha = mix(0.46, 0.085, wet);
+  float t = uTime;
+  S0 = vec4( 0.00, 1.00 + 0.03 * sin(t * 0.6),        0.00, 1.00);   // chrome
+  S1 = vec4(-1.80, 0.62 + 0.04 * sin(t * 0.7 + 1.0),  0.80, 0.60);   // emerald
+  S2 = vec4(-0.75, 0.47 + 0.04 * sin(t * 0.8 + 2.0),  2.30, 0.45);   // pearl
+  S3 = vec4( 0.55, 0.24 + 0.03 * sin(t * 0.9 + 3.0),  2.10, 0.22);   // lamp
 
-  vec3 V = vec3(0.0, 0.0, 1.0);
+  float pitch = -0.26 + min(uScroll / uRes.y, 1.5) * 0.95;
+  vec3 ro = vec3((m.x - 0.5) * 0.5, 2.35 + (0.5 - m.y) * 0.2, 11.5);
+  vec3 f = vec3(0.0, sin(pitch), -cos(pitch));
+  vec3 u = vec3(0.0, cos(pitch), sin(pitch));
+  vec3 rd = normalize(f * 1.9 + uv.x * vec3(1.0, 0.0, 0.0) + uv.y * u);
 
-  // the pointer light, hovering above the page
-  vec3 toL = vec3(uLight - px, 240.0);
-  float d2 = dot(toL, toL);
-  vec3 L = toL * inversesqrt(d2);
-  float reach = min(300.0, 0.42 * min(uRes.x, uRes.y));   // smaller pool on phones
-  float atten = 1.0 / (1.0 + d2 / (reach * reach));
-  atten *= atten;
-  float ndl = max(dot(n, L), 0.0);
-  float ndh = max(dot(n, normalize(L + V)), 0.0);
+  vec3 col = vec3(0.0);
+  vec3 thr = vec3(1.0);
+  vec3 lamp = vec3(1.00, 0.78, 0.42);
 
-  vec3 albedo = mix(vec3(0.050, 0.150, 0.095), vec3(0.012, 0.050, 0.032), wet);
-  vec3 col = albedo * ndl * atten * 1.25;
-  col += vec3(0.72, 1.0, 0.84) * min(ggx(ndh, alpha), 30.0) * ndl * atten * 0.07;
+  for (int bounce = 0; bounce < 3; bounce++) {
+    float tm = 1e9; int id = -1;
+    float h;
+    h = hitSphere(ro, rd, S0); if (h > 0.001 && h < tm) { tm = h; id = 0; }
+    h = hitSphere(ro, rd, S1); if (h > 0.001 && h < tm) { tm = h; id = 1; }
+    h = hitSphere(ro, rd, S2); if (h > 0.001 && h < tm) { tm = h; id = 2; }
+    h = hitSphere(ro, rd, S3); if (h > 0.001 && h < tm) { tm = h; id = 3; }
+    if (rd.y < 0.0) { h = -ro.y / rd.y; if (h > 0.001 && h < tm) { tm = h; id = 4; } }
 
-  // a fixed grazing light so the surface never goes dead
-  vec3 L2 = normalize(vec3(0.62, -0.50, 0.34));
-  float ndl2 = max(dot(n, L2), 0.0);
-  float ndh2 = max(dot(n, normalize(L2 + V)), 0.0);
-  col += albedo * ndl2 * 0.011;
-  col += vec3(0.50, 0.95, 0.70) * min(ggx(ndh2, alpha), 12.0) * ndl2 * 0.0022;
+    if (id < 0) { col += thr * sky(rd); thr = vec3(0.0); break; }
 
-  // keep the edges quiet for text
-  vec2 uv = px / uRes;
-  col *= mix(0.72, 1.0, smoothstep(1.25, 0.25, length(uv - vec2(0.5, 0.35))));
+    vec3 p = ro + rd * tm;
+    vec3 n;
+    if (id == 0) n = (p - S0.xyz) / S0.w;
+    else if (id == 1) n = (p - S1.xyz) / S1.w;
+    else if (id == 2) n = (p - S2.xyz) / S2.w;
+    else if (id == 3) n = (p - S3.xyz) / S3.w;
+    else n = vec3(0.0, 1.0, 0.0);
 
-  col = col / (1.0 + col);                       // tone map
-  col = pow(col, vec3(0.4545));
-  col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;  // dither
+    float ndv = max(dot(n, -rd), 0.0);
+    float fres = pow(1.0 - ndv, 5.0);
+    float ndl = max(dot(n, L), 0.0);
+    float sh = shadow(p + n * 0.002);
+    vec3 amb = mix(vec3(0.04, 0.12, 0.09), vec3(0.11, 0.28, 0.22), 0.5 + 0.5 * n.y);
+    float spec = pow(max(dot(n, normalize(L - rd)), 0.0), 70.0) * sh;
+
+    // warm fill from the little lamp
+    vec3 toLamp = S3.xyz - p;
+    float ld = dot(toLamp, toLamp);
+    vec3 fill = lamp * max(dot(n, toLamp * inversesqrt(ld)), 0.0) / (1.0 + ld * 2.2) * 1.3;
+
+    vec3 base; vec3 tint; float k;
+    if (id == 0) {                      // chrome
+      base = vec3(0.0); tint = vec3(0.90, 0.97, 0.93); k = 0.92;
+    } else if (id == 1) {               // emerald, glossy
+      vec3 alb = vec3(0.04, 0.58, 0.33);
+      base = alb * (ndl * sh * 1.25 + amb + fill) + vec3(1.0) * spec * 0.9;
+      tint = vec3(1.0); k = 0.05 + 0.6 * fres;
+    } else if (id == 2) {               // pearl with a thin-film sheen
+      vec3 film = 0.5 + 0.5 * cos(6.2832 * (ndv * 1.5 + vec3(0.00, 0.33, 0.67)));
+      vec3 alb = mix(vec3(0.92, 0.96, 0.93), film, 0.55);
+      base = alb * (ndl * sh * 0.95 + amb * 1.2 + fill) + vec3(1.0) * spec * 0.7;
+      tint = mix(vec3(1.0), film, 0.5); k = 0.16 + 0.6 * fres;
+    } else if (id == 3) {               // lamp
+      base = lamp * (1.6 + 1.6 * ndv); tint = vec3(0.0); k = 0.0;
+    } else {                            // floor
+      vec2 c = floor(p.xz * 0.9);
+      float chk = mod(c.x + c.y, 2.0);
+      chk = mix(chk, 0.5, smoothstep(5.0, 20.0, tm));     // fade the pattern before it aliases
+      vec3 alb = mix(vec3(0.020, 0.115, 0.085), vec3(0.036, 0.170, 0.125), chk);
+      float ao = occ1(p, n, S0) * occ1(p, n, S1) * occ1(p, n, S2) * occ1(p, n, S3);
+      base = alb * (ndl * sh * 1.2 + amb * ao + fill * 1.6);
+      tint = vec3(1.0); k = 0.07 + 0.5 * fres;
+    }
+
+    // distance haze so the floor melts into the horizon
+    float fog = 1.0 - exp(-max(tm - 6.0, 0.0) * 0.05);
+    vec3 hz = sky(normalize(vec3(rd.x, 0.02, rd.z)));
+    col += thr * mix(base * (1.0 - k), hz, fog);
+    thr *= tint * k * (1.0 - fog);
+
+    ro = p + n * 0.002;
+    rd = reflect(rd, n);
+  }
+  col += thr * sky(rd);
+
+  col *= 0.78;
+  col = col * (2.51 * col + 0.03) / (col * (2.43 * col + 0.59) + 0.14);   // filmic
+  col = pow(clamp(col, 0.0, 1.0), vec3(0.4545));
+  col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -210,8 +293,8 @@ void main() {
   const resizeGL = () => {
     if (!gl) return;
     // cap the buffer so large screens stay cheap
-    const maxPixels = 900000;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const maxPixels = 1400000;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let scale = dpr;
     if (innerWidth * innerHeight * scale * scale > maxPixels) scale = Math.sqrt(maxPixels / (innerWidth * innerHeight));
     canvas.width = Math.max(1, Math.round(innerWidth * scale));
