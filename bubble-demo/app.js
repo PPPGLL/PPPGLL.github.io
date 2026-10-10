@@ -1,6 +1,6 @@
-import { BubbleSimulation } from "./physics.js?v=20260807-20";
-import { BubbleRenderer } from "./renderer.js?v=20260807-20";
-import { rayFromScreen } from "./math.js?v=20260807-20";
+import { BubbleSimulation } from "./physics.js?v=20261010-1";
+import { BubbleRenderer } from "./renderer.js?v=20261010-1";
+import { rayFromScreen } from "./math.js?v=20261010-1";
 
 const canvas = document.querySelector("#scene");
 const errorScreen = document.querySelector("#error");
@@ -22,15 +22,15 @@ try {
     onEnvironmentLoading(index, progress) {
       loadingLabel.hidden = false;
       loadingLabel.textContent = progress > 0
-        ? `HDR ${index + 1} · ${Math.round(progress * 100)}%`
-        : `正在载入 HDR ${index + 1}`;
+        ? `环境贴图 ${Math.round(progress * 100)}%`
+        : "正在载入环境贴图";
     },
     onEnvironmentLoaded() {
       loadingLabel.hidden = true;
     },
     onEnvironmentError() {
       loadingLabel.hidden = false;
-      loadingLabel.textContent = "HDR 载入失败，使用后备环境";
+      loadingLabel.textContent = "环境贴图未载入，使用简化天空";
     }
   });
 } catch (error) {
@@ -701,6 +701,7 @@ let previousFrame = performance.now();
 let fpsAccumulator = 0;
 let fpsFrameCount = 0;
 let fpsUpdateTime = previousFrame;
+let seeded = false;
 
 function frame(now) {
   const deltaTime = Math.min((now - previousFrame) / 1000, .05);
@@ -708,6 +709,15 @@ function frame(now) {
   const aspect = Math.max(canvas.clientWidth, 1) / Math.max(canvas.clientHeight, 1);
   simulation.update(deltaTime, aspect);
   camera = renderer.render();
+  if (!seeded && camera) {              // open on a cluster instead of an empty scene
+    seeded = true;
+    if (simulation.bubbles.length === 0) {
+      document.querySelector("#random-place").click();
+      simulation.selectedIds = [];
+      simulation.interaction.selectedId = 0;
+      updateSelectionPanel();
+    }
+  }
 
   fpsAccumulator += deltaTime;
   fpsFrameCount += 1;
